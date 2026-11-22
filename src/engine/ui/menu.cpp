@@ -13,6 +13,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -321,6 +322,91 @@ void Menu_L::drawRoundedRect(float x, float y, float w, float h, float radius,
     glEnable(GL_TEXTURE_2D);
 }
 
+namespace {
+// Main menu layout (1080p design grid).
+constexpr float kMenuLeft = 110.0f;
+constexpr float kMenuTitleY = 150.0f;
+constexpr float kMenuStartY = 330.0f;
+constexpr float kMenuRow = 44.0f;
+constexpr float kMenuRowHeight = 34.0f;
+constexpr float kMenuRowWidth = 320.0f;
+}
+
+bool Menu_L::hovered(float x, float y, float w, float h) const {
+    return mouseX >= x && mouseX <= x + w && mouseY >= y && mouseY <= y + h;
+}
+
+// Colors taken from the game's platform/resource/sourcescheme.res so the
+// dialogs match Source's VGUI look.
+namespace {
+// Modern Half-Life 2 look: charcoal panels with the orange accent color.
+constexpr float kControlBG[3]      = {32.0f / 255.0f, 34.0f / 255.0f, 37.0f / 255.0f};
+constexpr float kControlDarkBG[3]  = {44.0f / 255.0f, 47.0f / 255.0f, 52.0f / 255.0f};
+constexpr float kWindowBG[3]       = {18.0f / 255.0f, 19.0f / 255.0f, 21.0f / 255.0f};
+constexpr float kSelectionBG[3]    = {255.0f / 255.0f, 158.0f / 255.0f, 12.0f / 255.0f};
+constexpr float kBorderBright[3]   = {82.0f / 255.0f, 86.0f / 255.0f, 92.0f / 255.0f};
+constexpr float kBorderDark[3]     = {12.0f / 255.0f, 13.0f / 255.0f, 15.0f / 255.0f};
+constexpr float kControlText[3]    = {228.0f / 255.0f, 230.0f / 255.0f, 233.0f / 255.0f};
+constexpr float kBrightControl[3]  = {255.0f / 255.0f, 168.0f / 255.0f, 32.0f / 255.0f};
+constexpr float kDimBaseText[3]    = {150.0f / 255.0f, 154.0f / 255.0f, 160.0f / 255.0f};
+constexpr float kButtonBG[3]       = {38.0f / 255.0f, 41.0f / 255.0f, 45.0f / 255.0f};
+constexpr float kButtonHover[3]    = {56.0f / 255.0f, 60.0f / 255.0f, 65.0f / 255.0f};
+constexpr float kButtonPressed[3]  = {20.0f / 255.0f, 21.0f / 255.0f, 23.0f / 255.0f};
+}
+
+// Flat Source frame: solid ControlBG fill, bright top/left and dark bottom/right.
+void Menu_L::drawFrame(float x, float y, float w, float h, float, float) {
+    drawRect(x, y, w, h, kControlBG[0], kControlBG[1], kControlBG[2], 0.97f);
+    drawRect(x, y, w, 1.0f, kBorderBright[0], kBorderBright[1], kBorderBright[2], 1.0f);
+    drawRect(x, y, 1.0f, h, kBorderBright[0], kBorderBright[1], kBorderBright[2], 1.0f);
+    drawRect(x, y + h - 1.0f, w, 1.0f, kBorderDark[0], kBorderDark[1], kBorderDark[2], 1.0f);
+    drawRect(x + w - 1.0f, y, 1.0f, h, kBorderDark[0], kBorderDark[1], kBorderDark[2], 1.0f);
+    drawRect(x + 1.0f, y + 1.0f, w - 2.0f, 1.0f, kBorderDark[0], kBorderDark[1], kBorderDark[2], 0.55f);
+    drawRect(x + 1.0f, y + 1.0f, 1.0f, h - 2.0f, kBorderDark[0], kBorderDark[1], kBorderDark[2], 0.55f);
+}
+
+// Flat Source button: no gradients, only solid fill plus a 1px bevel.
+void Menu_L::drawBevelButton(float x, float y, float w, float h, bool pressed, bool hover) {
+    const float* face = pressed ? kButtonPressed : (hover ? kButtonHover : kButtonBG);
+    drawRect(x, y, w, h, face[0], face[1], face[2], 1.0f);
+
+    if (hover) {
+        drawRect(x, y, w, 1.0f, kSelectionBG[0], kSelectionBG[1], kSelectionBG[2], 0.95f);
+        drawRect(x, y, 1.0f, h, kSelectionBG[0], kSelectionBG[1], kSelectionBG[2], 0.95f);
+        drawRect(x + w - 1.0f, y, 1.0f, h, kSelectionBG[0], kSelectionBG[1], kSelectionBG[2], 0.75f);
+        drawRect(x, y + h - 1.0f, w, 1.0f, kSelectionBG[0], kSelectionBG[1], kSelectionBG[2], 0.75f);
+    } else {
+        drawRect(x, y, w, 1.0f, kBorderBright[0], kBorderBright[1], kBorderBright[2], 0.85f);
+        drawRect(x, y, 1.0f, h, kBorderBright[0], kBorderBright[1], kBorderBright[2], 0.85f);
+        drawRect(x + w - 1.0f, y, 1.0f, h, kBorderDark[0], kBorderDark[1], kBorderDark[2], 1.0f);
+        drawRect(x, y + h - 1.0f, w, 1.0f, kBorderDark[0], kBorderDark[1], kBorderDark[2], 1.0f);
+    }
+}
+
+void Menu_L::drawButtonText(const std::string& label, float x, float y, float w, float h, bool hover) {
+    const float tw = textWidth(label, fontSmall);
+    const float ty = y + (h - fontSmall.pixelHeight) * 0.5f - 1.0f;
+    drawText(label, x + (w - tw) * 0.5f, ty, fontSmall,
+             hover ? kBrightControl[0] : kControlText[0],
+             hover ? kBrightControl[1] : kControlText[1],
+             hover ? kBrightControl[2] : kControlText[2], 0.98f);
+}
+
+// Flat sunken text field (ListBG fill, inverted bevel).
+void Menu_L::drawSunkenField(float x, float y, float w, float h, bool focused) {
+    drawRect(x, y, w, h, kWindowBG[0], kWindowBG[1], kWindowBG[2], 1.0f);
+    drawRect(x, y, w, 1.0f, kBorderDark[0], kBorderDark[1], kBorderDark[2], 1.0f);
+    drawRect(x, y, 1.0f, h, kBorderDark[0], kBorderDark[1], kBorderDark[2], 1.0f);
+    drawRect(x, y + h - 1.0f, w, 1.0f, kBorderBright[0], kBorderBright[1], kBorderBright[2], 0.9f);
+    drawRect(x + w - 1.0f, y, 1.0f, h, kBorderBright[0], kBorderBright[1], kBorderBright[2], 0.9f);
+    if (focused) {
+        drawRect(x - 1.0f, y - 1.0f, w + 2.0f, 1.0f, kBrightControl[0], kBrightControl[1], kBrightControl[2], 0.95f);
+        drawRect(x - 1.0f, y + h, w + 2.0f, 1.0f, kBrightControl[0], kBrightControl[1], kBrightControl[2], 0.75f);
+        drawRect(x - 1.0f, y, 1.0f, h, kBrightControl[0], kBrightControl[1], kBrightControl[2], 0.85f);
+        drawRect(x + w, y, 1.0f, h, kBrightControl[0], kBrightControl[1], kBrightControl[2], 0.85f);
+    }
+}
+
 void Menu_L::drawLine(float x1, float y1, float x2, float y2, float width, float alpha) {
     glDisable(GL_TEXTURE_2D);
     glColor4f(0.84f, 0.84f, 0.84f, alpha);
@@ -425,32 +511,72 @@ void Menu_L::renderMainMenu(int width, int height) {
         renderPauseFrame(width, height);
     } else if (!previewMapLoaded && !backgroundTextures.empty()) {
         drawTexture(backgroundTextures.front(), 0, 0, static_cast<float>(width), static_cast<float>(height), 1.0f, true);
-        drawRect(0, 0, static_cast<float>(width), static_cast<float>(height), 0, 0, 0, 0.20f);
+        drawRect(0, 0, static_cast<float>(width), static_cast<float>(height), 0, 0, 0, 0.18f);
     } else {
         drawRect(0, 0, static_cast<float>(width), static_cast<float>(height), 0.055f, 0.06f, 0.065f, 1.0f);
     }
 
     const float base = std::min(width / 1920.0f, height / 1080.0f);
     const float s = std::max(0.65f, std::min(1.45f, base));
-    const float left = 110.0f * s;
-    const float titleY = 218.0f * s;
-    const float menuY = 455.0f * s;
-    const float row = 31.0f * s;
 
-    drawText(upperTitle(title), left, titleY, fontTitle, 0.72f, 0.73f, 0.74f, 0.58f);
+    // Left readability gradient (background only, the widgets stay flat).
+    glDisable(GL_TEXTURE_2D);
+    glBegin(GL_QUADS);
+    glColor4f(0.0f, 0.0f, 0.0f, 0.72f);
+    glVertex2f(0, 0);
+    glVertex2f(0, (float)height);
+    glColor4f(0.0f, 0.0f, 0.0f, 0.0f);
+    glVertex2f(width * 0.40f, (float)height);
+    glVertex2f(width * 0.40f, 0);
+    glEnd();
+    glEnable(GL_TEXTURE_2D);
+
+    const float left = kMenuLeft * s;
+
+    // Title with a thin orange rule underneath.
+    drawText(upperTitle(title), left, kMenuTitleY * s, fontTitle,
+             0.97f, 0.97f, 0.98f, 0.96f);
+    drawRect(left, kMenuTitleY * s + fontTitle.pixelHeight * 1.15f, 128.0f * s, 3.0f * s,
+             kSelectionBG[0], kSelectionBG[1], kSelectionBG[2], 0.95f);
 
     const std::vector<std::string> items = pauseMode
         ? std::vector<std::string>{"Resume", "New Game", "Load Game", "Options", "Main Menu", "Quit"}
         : std::vector<std::string>{"New Game", "Host a Game", "Load Game", "Options", "Quit"};
 
+    const int hoverControl = hitMainControl(mouseX, mouseY, width, height);
+    if (std::getenv("SAUCE_DEBUG_UI")) {
+        static double last = 0.0;
+        const double now = glfwGetTime();
+        if (now - last > 1.0) {
+            last = now;
+            std::fprintf(stderr, "[UI] mouse=(%.0f, %.0f) hover=%d size=%dx%d\n",
+                         mouseX, mouseY, hoverControl, width, height);
+        }
+    }
+
     for (size_t i = 0; i < items.size(); ++i) {
         const bool pressed = pressedControl == static_cast<int>(i) && mouseWasDown;
-        const float y = menuY + row * static_cast<float>(i);
-        if (pressed) drawRect(left - 5.0f * s, y + 1.0f * s,
-                              textWidth(items[i], fontMenu) + 10.0f * s, 20.0f * s,
-                              0.08f, 0.08f, 0.08f, 0.50f);
-        drawText(items[i], left, y, fontMenu, 0.92f, 0.92f, 0.92f, 0.94f);
+        const bool hover = hoverControl == static_cast<int>(i);
+        const float y = kMenuStartY * s + kMenuRow * s * static_cast<float>(i);
+        const std::string label = upperTitle(items[i]);
+        if (hover || pressed) {
+            drawRect(left - 14.0f * s, y - 5.0f * s, 3.0f * s, kMenuRowHeight * s,
+                     kSelectionBG[0], kSelectionBG[1], kSelectionBG[2], 1.0f);
+            drawRect(left - 14.0f * s, y - 5.0f * s, kMenuRowWidth * s, kMenuRowHeight * s,
+                     0.0f, 0.0f, 0.0f, pressed ? 0.34f : 0.22f);
+        }
+        drawText(label, left, y, fontMenu,
+                 (hover || pressed) ? kBrightControl[0] : kControlText[0],
+                 (hover || pressed) ? kBrightControl[1] : kControlText[1],
+                 (hover || pressed) ? kBrightControl[2] : kControlText[2],
+                 (hover || pressed) ? 1.0f : 0.92f);
     }
+
+    // Footer.
+    drawText("SAUCE ENGINE", left, height - 62.0f * s, fontTiny,
+             kDimBaseText[0], kDimBaseText[1], kDimBaseText[2], 0.85f);
+    drawText("SOURCE-COMPATIBLE", left, height - 46.0f * s, fontTiny,
+             kDimBaseText[0], kDimBaseText[1], kDimBaseText[2], 0.55f);
 
     if (dialog == DialogKind::None && pauseMode)
         drawText("ESC", left, height - 44.0f * s, fontTiny, 0.76f, 0.76f, 0.76f, 0.48f);
@@ -527,20 +653,26 @@ void Menu_L::renderDialog(int width, int height) {
     const float s = std::max(0.55f, std::min(1.35f, std::min(width / 1920.0f, height / 1080.0f)));
 
 
-    drawRoundedRect(dialogX, dialogY, dialogW, dialogH, 8.0f, 0.43f, 0.43f, 0.43f, 0.78f);
-    drawRoundedRect(dialogX + 2.0f, dialogY + 2.0f, dialogW - 4.0f, dialogH - 4.0f, 6.0f,
-                    0.28f, 0.29f, 0.30f, 0.76f);
-    drawRoundedRect(dialogX + 2.0f, dialogY + 2.0f, dialogW - 4.0f, 27.0f * s,
-                    6.0f, 0.36f, 0.37f, 0.38f, 0.84f);
+    drawFrame(dialogX, dialogY, dialogW, dialogH, 0.0f, 0.0f);
+    drawRect(dialogX + 1.0f, dialogY + 1.0f, dialogW - 2.0f, 26.0f * s,
+             kControlDarkBG[0], kControlDarkBG[1], kControlDarkBG[2], 1.0f);
+    drawRect(dialogX + 1.0f, dialogY + 27.0f * s, dialogW - 2.0f, 1.0f,
+             kBorderDark[0], kBorderDark[1], kBorderDark[2], 1.0f);
+    drawRect(dialogX + 1.0f, dialogY + 1.0f, 3.0f * s, 26.0f * s,
+             kSelectionBG[0], kSelectionBG[1], kSelectionBG[2], 1.0f);
 
-    drawText(dialogTitle, dialogX + 12.0f * s, dialogY + 6.0f * s,
-             fontTiny, 0.96f, 0.96f, 0.96f, 0.96f);
+    drawText(dialogTitle, dialogX + 12.0f * s, dialogY + 5.0f * s,
+             fontSmall, 1.0f, 1.0f, 1.0f, 0.96f);
 
-    const float closeX = dialogX + dialogW - 20.0f * s;
+    const float closeX = dialogX + dialogW - 24.0f * s;
+    const float closeY = dialogY + 4.0f * s;
     const bool closePressed = pressedControl == 900 && mouseWasDown;
-    if (closePressed) drawRect(closeX - 3.0f * s, dialogY + 4.0f * s, 16.0f * s, 16.0f * s,
-                               0.12f, 0.12f, 0.12f, 0.50f);
-    drawText("X", closeX, dialogY + 5.0f * s, fontTiny, 0.96f, 0.96f, 0.96f, 0.85f);
+    const bool closeHover = hovered(closeX, closeY, 18.0f * s, 18.0f * s);
+    drawBevelButton(closeX, closeY, 18.0f * s, 18.0f * s, closePressed, closeHover);
+    drawText("X", closeX + 5.0f * s, closeY + 4.0f * s, fontTiny,
+             closeHover ? kBrightControl[0] : kControlText[0],
+             closeHover ? kBrightControl[1] : kControlText[1],
+             closeHover ? kBrightControl[2] : kControlText[2], 0.98f);
 
     if (dialog == DialogKind::Chapters) renderChapterSelector(width, height);
     else if (dialog == DialogKind::Host) renderHostDialog(width, height);
@@ -553,19 +685,22 @@ void Menu_L::renderEmptyDialog(int width, int height) {
     const float innerY = dialogY + 45.0f * s;
     const float innerW = dialogW - 36.0f * s;
     const float innerH = dialogH - 78.0f * s;
-    drawRect(innerX, innerY, innerW, innerH, 0.64f, 0.64f, 0.64f, 0.08f);
+    drawSunkenField(innerX, innerY, innerW, innerH, false);
+    drawText("This dialog is a placeholder.", innerX + 16.0f * s, innerY + 16.0f * s,
+             fontSmall, kDimBaseText[0], kDimBaseText[1], kDimBaseText[2], 0.95f);
+    drawText("Use the command line options for now:", innerX + 16.0f * s, innerY + 38.0f * s,
+             fontTiny, kDimBaseText[0], kDimBaseText[1], kDimBaseText[2], 0.85f);
+    drawText("-width <px>  -height <px>  -nopost", innerX + 16.0f * s, innerY + 56.0f * s,
+             fontTiny, kControlText[0], kControlText[1], kControlText[2], 0.9f);
 
     const bool cancelPressed = pressedControl == 901 && mouseWasDown;
     const float bw = 76.0f * s;
-    const float bh = 24.0f * s;
+    const float bh = 26.0f * s;
     const float bx = dialogX + dialogW - bw - 16.0f * s;
     const float by = dialogY + dialogH - bh - 14.0f * s;
-    drawRect(bx, by, bw, bh,
-             cancelPressed ? 0.18f : 0.42f, cancelPressed ? 0.18f : 0.42f,
-             cancelPressed ? 0.18f : 0.42f, cancelPressed ? 0.56f : 0.66f);
-    drawLine(bx, by, bx + bw, by, 1.0f, 0.62f);
-    drawLine(bx, by + bh, bx + bw, by + bh, 1.0f, 0.46f);
-    drawText("Close", bx + 12.0f * s, by + 4.0f * s, fontTiny, 0.95f, 0.95f, 0.95f, 0.95f);
+    const bool cancelHover = hovered(bx, by, bw, bh);
+    drawBevelButton(bx, by, bw, bh, cancelPressed, cancelHover);
+    drawButtonText("Close", bx, by, bw, bh, cancelHover);
 }
 
 void Menu_L::renderHostDialog(int width, int height) {
@@ -577,52 +712,59 @@ void Menu_L::renderHostDialog(int width, int height) {
     const float gap = 25.0f * s;
     float y = dialogY + 46.0f * s;
 
-    drawText("Map", x, y, fontTiny, 0.78f, 0.78f, 0.78f, 0.90f);
+    drawText("Map", x, y, fontTiny, kDimBaseText[0], kDimBaseText[1], kDimBaseText[2], 1.0f);
     y += labelH;
     const std::string mapLabel = chapters.empty() ? "No maps found" : chapters[hostMapIndex].mapName;
-    drawRoundedRect(x, y, w, fieldH, 4.0f, 0.16f, 0.18f, 0.19f, 0.94f);
-    drawText(mapLabel, x + 10.0f * s, y + 7.0f * s, fontSmall, 0.95f, 0.95f, 0.95f, 0.98f);
+    drawSunkenField(x, y, w, fieldH, hostField == 0 && hostDropdownOpen);
+    drawText(mapLabel, x + 10.0f * s, y + 8.0f * s, fontSmall, 0.92f, 0.92f, 0.93f, 0.98f);
     drawText(hostDropdownOpen ? "^" : "v", x + w - 20.0f * s, y + 7.0f * s, fontTiny, 0.78f, 0.78f, 0.78f, 0.90f);
 
     y += fieldH + gap;
-    drawText("Port", x, y, fontTiny, 0.78f, 0.78f, 0.78f, 0.90f);
+    drawText("Port", x, y, fontTiny, kDimBaseText[0], kDimBaseText[1], kDimBaseText[2], 1.0f);
     y += labelH;
-    drawRoundedRect(x, y, w, fieldH, 4.0f, hostField == 1 ? 0.20f : 0.16f, hostField == 1 ? 0.22f : 0.18f, hostField == 1 ? 0.23f : 0.19f, 0.94f);
-    drawText(hostPortText, x + 10.0f * s, y + 7.0f * s, fontSmall, 0.95f, 0.95f, 0.95f, 0.98f);
+    drawSunkenField(x, y, w, fieldH, hostField == 1);
+    drawText(hostPortText, x + 10.0f * s, y + 8.0f * s, fontSmall, 0.92f, 0.92f, 0.93f, 0.98f);
 
     y += fieldH + gap;
-    drawText("IP", x, y, fontTiny, 0.78f, 0.78f, 0.78f, 0.90f);
+    drawText("IP", x, y, fontTiny, kDimBaseText[0], kDimBaseText[1], kDimBaseText[2], 1.0f);
     y += labelH;
-    drawRoundedRect(x, y, w, fieldH, 4.0f, 0.13f, 0.14f, 0.15f, 0.90f);
-    drawText("0.0.0.0", x + 10.0f * s, y + 7.0f * s, fontSmall, 0.68f, 0.68f, 0.68f, 0.90f);
+    drawSunkenField(x, y, w, fieldH, false);
+    drawText("0.0.0.0", x + 10.0f * s, y + 8.0f * s, fontSmall, 0.60f, 0.60f, 0.62f, 0.90f);
 
     y += fieldH + gap;
-    drawText("Player model", x, y, fontTiny, 0.78f, 0.78f, 0.78f, 0.90f);
+    drawText("Player model", x, y, fontTiny, kDimBaseText[0], kDimBaseText[1], kDimBaseText[2], 1.0f);
     y += labelH;
-    drawRoundedRect(x, y, w, fieldH, 4.0f, hostField == 2 ? 0.20f : 0.16f, hostField == 2 ? 0.22f : 0.18f, hostField == 2 ? 0.23f : 0.19f, 0.94f);
-    drawText(hostModelPath, x + 10.0f * s, y + 7.0f * s, fontTiny, 0.95f, 0.95f, 0.95f, 0.98f);
-    drawText("Ctrl+V", x + w - 52.0f * s, y + 8.0f * s, fontTiny, 0.56f, 0.56f, 0.56f, 0.88f);
+    drawSunkenField(x, y, w, fieldH, hostField == 2);
+    drawText(hostModelPath, x + 10.0f * s, y + 8.0f * s, fontTiny, 0.92f, 0.92f, 0.93f, 0.98f);
+    drawText("Ctrl+V", x + w - 52.0f * s, y + 9.0f * s, fontTiny, kDimBaseText[0], kDimBaseText[1], kDimBaseText[2], 0.75f);
 
     y += fieldH + gap;
-    drawText("Player", x, y, fontTiny, 0.78f, 0.78f, 0.78f, 0.90f);
+    drawText("Player", x, y, fontTiny, kDimBaseText[0], kDimBaseText[1], kDimBaseText[2], 1.0f);
     y += labelH;
-    drawRoundedRect(x, y, w, fieldH, 4.0f, hostField == 3 ? 0.20f : 0.13f, hostField == 3 ? 0.22f : 0.14f, hostField == 3 ? 0.23f : 0.15f, 0.94f);
-    drawText(playerNick, x + 10.0f * s, y + 7.0f * s, fontSmall, 0.95f, 0.95f, 0.95f, 0.98f);
-    drawText("Ctrl+C/V", x + w - 66.0f * s, y + 8.0f * s, fontTiny, 0.56f, 0.56f, 0.56f, 0.88f);
+    drawSunkenField(x, y, w, fieldH, hostField == 3);
+    drawText(playerNick, x + 10.0f * s, y + 8.0f * s, fontSmall, 0.92f, 0.92f, 0.93f, 0.98f);
+    drawText("Ctrl+C/V", x + w - 66.0f * s, y + 9.0f * s, fontTiny, kDimBaseText[0], kDimBaseText[1], kDimBaseText[2], 0.75f);
 
     if (hostDropdownOpen && !chapters.empty()) {
         const size_t visible = std::min<size_t>(8, chapters.size());
         const float mapFieldY = dialogY + 46.0f * s + 18.0f * s;
         const float listY = mapFieldY + fieldH + 4.0f * s;
         const float listH = visible * 27.0f * s;
-        drawRoundedRect(x, listY, w, listH, 4.0f, 0.10f, 0.12f, 0.13f, 0.98f);
+        drawFrame(x, listY, w, listH, 0.16f, 0.13f);
         size_t startIndex = std::min(hostMapScroll, chapters.size() - visible);
         for (size_t i = 0; i < visible && startIndex + i < chapters.size(); ++i) {
             const size_t index = startIndex + i;
             const float iy = listY + i * 27.0f * s;
             const bool selected = index == hostMapIndex;
-            if (selected) drawRect(x + 2.0f * s, iy + 2.0f * s, w - 4.0f * s, 23.0f * s, 0.27f, 0.29f, 0.30f, 0.92f);
-            drawText(chapters[index].mapName, x + 10.0f * s, iy + 5.0f * s, fontTiny, 0.94f, 0.94f, 0.94f, 0.96f);
+            if (selected) {
+                drawRect(x + 1.0f, iy + 1.0f, w - 2.0f, 25.0f * s,
+                         kButtonHover[0], kButtonHover[1], kButtonHover[2], 1.0f);
+                drawRect(x + 1.0f, iy + 1.0f, 2.0f * s, 25.0f * s,
+                         kSelectionBG[0], kSelectionBG[1], kSelectionBG[2], 1.0f);
+            }
+            const bool rowHover = hovered(x + 1.0f, iy, w - 2.0f, 25.0f * s);
+            drawText(chapters[index].mapName, x + 10.0f * s, iy + 5.0f * s, fontTiny,
+                     rowHover ? 1.0f : 0.90f, rowHover ? 0.66f : 0.90f, rowHover ? 0.10f : 0.92f, 0.96f);
         }
     }
 
@@ -634,10 +776,12 @@ void Menu_L::renderHostDialog(int width, int height) {
     const float startX = closeX - startW - 10.0f * s;
     const bool startPressed = pressedControl == 923 && mouseWasDown;
     const bool closePressed = pressedControl == 924 && mouseWasDown;
-    drawRect(startX, by, startW, bh, startPressed ? 0.18f : 0.42f, startPressed ? 0.18f : 0.42f, startPressed ? 0.18f : 0.42f, 0.70f);
-    drawText("Start", startX + 15.0f * s, by + 5.0f * s, fontTiny, 0.96f, 0.96f, 0.96f, 0.96f);
-    drawRect(closeX, by, closeW, bh, closePressed ? 0.18f : 0.42f, closePressed ? 0.18f : 0.42f, closePressed ? 0.18f : 0.42f, 0.70f);
-    drawText("Close", closeX + 12.0f * s, by + 5.0f * s, fontTiny, 0.96f, 0.96f, 0.96f, 0.96f);
+    const bool startHover = hovered(startX, by, startW, bh);
+    const bool closeHover = hovered(closeX, by, closeW, bh);
+    drawBevelButton(startX, by, startW, bh, startPressed, startHover);
+    drawButtonText("Start", startX, by, startW, bh, startHover);
+    drawBevelButton(closeX, by, closeW, bh, closePressed, closeHover);
+    drawButtonText("Close", closeX, by, closeW, bh, closeHover);
 }
 
 void Menu_L::renderChapterSelector(int width, int height) {
@@ -673,34 +817,51 @@ void Menu_L::renderChapterSelector(int width, int height) {
 
         char counter[32];
         std::snprintf(counter, sizeof(counter), "%02d", chapter.number > 0 ? chapter.number : static_cast<int>(index + 1));
-        drawText(counter, x, cardTop, fontTiny, 0.82f, 0.82f, 0.82f, 0.42f);
-        drawText(chapter.name, x, cardTop + 13.0f * s, fontSmall, 0.96f, 0.96f, 0.96f, 0.96f);
+        drawText(counter, x, cardTop, fontTiny, kDimBaseText[0], kDimBaseText[1], kDimBaseText[2], 0.85f);
+        const bool cardHover = hovered(x, cardTop + textBlockH, cardW, imageH);
+        drawText(chapter.name, x, cardTop + 13.0f * s, fontSmall,
+                 cardHover ? kBrightControl[0] : kControlText[0],
+                 cardHover ? kBrightControl[1] : kControlText[1],
+                 cardHover ? kBrightControl[2] : kControlText[2], 0.97f);
 
         const float imageY = cardTop + textBlockH;
-        const float border = selected ? 2.0f * s : 1.0f * s;
-        drawRect(x - border, imageY - border, cardW + border * 2.0f, imageH + border * 2.0f,
-                 0.90f, 0.90f, 0.90f, selected ? 0.84f : 0.30f);
+        if (selected) {
+            drawRect(x - 2.0f, imageY - 2.0f, cardW + 4.0f, imageH + 4.0f,
+                     kSelectionBG[0], kSelectionBG[1], kSelectionBG[2], 1.0f);
+        } else {
+            drawRect(x - 1.0f, imageY - 1.0f, cardW + 2.0f, imageH + 2.0f,
+                     kBorderDark[0], kBorderDark[1], kBorderDark[2], 0.9f);
+        }
         const unsigned int resolvedId = resolveChapterTexture(index);
         TextureRef resolved = chapterTextures[index];
         if (!resolved.id) resolved.id = resolvedId;
-        drawTexture(resolved, x, imageY, cardW, imageH, pressed ? 0.46f : 1.0f, true);
+        drawTexture(resolved, x, imageY, cardW, imageH, pressed ? 0.55f : 1.0f, true);
 
         if (pressed) drawRect(x, imageY, cardW, imageH, 0.08f, 0.08f, 0.08f, 0.26f);
     }
 
     const float navY = cardTop + imageH + 66.0f * s;
-    const float arrowW = 26.0f * s;
+    const float arrowW = 28.0f * s;
+    const float arrowH = 24.0f * s;
     const bool leftPressed = pressedControl == 110 && mouseWasDown;
     const bool rightPressed = pressedControl == 111 && mouseWasDown;
-    if (leftPressed) drawRect(bodyX, navY - 2, arrowW, 22.0f * s, 0.12f, 0.12f, 0.12f, 0.55f);
-    if (rightPressed) drawRect(bodyX + innerW - arrowW, navY - 2, arrowW, 22.0f * s, 0.12f, 0.12f, 0.12f, 0.55f);
-    drawText("<", bodyX + 8.0f * s, navY, fontSmall, 0.94f, 0.94f, 0.94f, 0.84f);
-    drawText(">", bodyX + innerW - 17.0f * s, navY, fontSmall, 0.94f, 0.94f, 0.94f, 0.84f);
+    const bool leftHover = hovered(bodyX, navY - 2.0f * s, arrowW, arrowH);
+    const bool rightHover = hovered(bodyX + innerW - arrowW, navY - 2.0f * s, arrowW, arrowH);
+    drawBevelButton(bodyX, navY - 2.0f * s, arrowW, arrowH, leftPressed, leftHover);
+    drawBevelButton(bodyX + innerW - arrowW, navY - 2.0f * s, arrowW, arrowH, rightPressed, rightHover);
+    drawText("<", bodyX + 10.0f * s, navY + 2.0f * s, fontSmall,
+             leftHover ? kBrightControl[0] : kControlText[0],
+             leftHover ? kBrightControl[1] : kControlText[1],
+             leftHover ? kBrightControl[2] : kControlText[2], 0.95f);
+    drawText(">", bodyX + innerW - 18.0f * s, navY + 2.0f * s, fontSmall,
+             rightHover ? kBrightControl[0] : kControlText[0],
+             rightHover ? kBrightControl[1] : kControlText[1],
+             rightHover ? kBrightControl[2] : kControlText[2], 0.95f);
 
     const std::string counterText = std::to_string(selectedChapter + 1) + " / " + std::to_string(chapters.size());
     const float counterWidth = textWidth(counterText, fontTiny);
     drawText(counterText, dialogX + (dialogW - counterWidth) * 0.5f, navY + 4.0f * s,
-             fontTiny, 0.74f, 0.74f, 0.74f, 0.55f);
+             fontTiny, kDimBaseText[0], kDimBaseText[1], kDimBaseText[2], 0.9f);
 
     const float bh = 24.0f * s;
     const float startW = 88.0f * s;
@@ -718,11 +879,9 @@ void Menu_L::renderChapterSelector(int width, int height) {
         const float w = button.second.second.first;
         const std::string& label = button.second.second.second;
         const bool pressed = pressedControl == id && mouseWasDown;
-        const float c = pressed ? 0.17f : 0.42f;
-        drawRect(x, by, w, bh, c, c, c, 0.68f);
-        drawLine(x, by, x + w, by, 1.0f, 0.62f);
-        drawLine(x, by + bh, x + w, by + bh, 1.0f, 0.44f);
-        drawText(label, x + 10.0f * s, by + 4.0f * s, fontTiny, 0.95f, 0.95f, 0.95f, 0.94f);
+        const bool btnHover = hovered(x, by, w, bh);
+        drawBevelButton(x, by, w, bh, pressed, btnHover);
+        drawButtonText(label, x, by, w, bh, btnHover);
     }
 }
 
@@ -732,15 +891,12 @@ bool Menu_L::pointIn(float px, float py, float x, float y, float w, float h) con
 
 int Menu_L::hitMainControl(float mx, float my, int width, int height) const {
     const float s = std::max(0.65f, std::min(1.45f, std::min(width / 1920.0f, height / 1080.0f)));
-    const float left = 110.0f * s;
-    const float top = 455.0f * s;
-    const float row = 31.0f * s;
-    const std::vector<std::string> items = pauseMode
-        ? std::vector<std::string>{"Resume", "New Game", "Load Game", "Options", "Main Menu", "Quit"}
-        : std::vector<std::string>{"New Game", "Host a Game", "Load Game", "Options", "Quit"};
-    for (size_t i = 0; i < items.size(); ++i) {
-        const float w = textWidth(items[i], fontMenu) + 10.0f * s;
-        if (pointIn(mx, my, left - 5.0f * s, top + row * i, w, 22.0f * s)) return static_cast<int>(i);
+    const size_t count = pauseMode ? 6u : 5u;
+    for (size_t i = 0; i < count; ++i) {
+        const float y = kMenuStartY * s + kMenuRow * s * static_cast<float>(i) - 5.0f * s;
+        if (pointIn(mx, my, kMenuLeft * s - 14.0f * s, y,
+                    kMenuRowWidth * s, kMenuRowHeight * s))
+            return static_cast<int>(i);
     }
     return -1;
 }
@@ -937,6 +1093,8 @@ bool Menu_L::handleDialogInput(GLFWwindow* window, int width, int height, MenuRe
     if (GameConsole_IsOpen()) return false;
     double mx = 0.0, my = 0.0;
     glfwGetCursorPos(window, &mx, &my);
+    mouseX = static_cast<float>(mx);
+    mouseY = static_cast<float>(my);
     const bool mouseDown = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
     const int hit = hitDialogControl(mx, my, width, height);
     const float s = std::max(0.55f, std::min(1.35f, std::min(width / 1920.0f, height / 1080.0f)));
@@ -1097,6 +1255,12 @@ bool Menu_L::handleDialogInput(GLFWwindow* window, int width, int height, MenuRe
 }
 
 bool Menu_L::handleMenuInput(GLFWwindow* window, int width, int height, MenuResult& result) {
+    {
+        double mx = 0.0, my = 0.0;
+        glfwGetCursorPos(window, &mx, &my);
+        mouseX = static_cast<float>(mx);
+        mouseY = static_cast<float>(my);
+    }
     if (GameConsole_IsOpen()) return false;
     double mx = 0.0, my = 0.0;
     glfwGetCursorPos(window, &mx, &my);
@@ -1197,12 +1361,15 @@ void Menu_L::renderConsoleOverlay(int width, int height) {
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
 
-    drawRoundedRect(consoleX, consoleY, consoleW, consoleH, 8.0f,
-                    0.46f, 0.46f, 0.46f, 0.78f);
-    drawRoundedRect(consoleX + 1.0f, consoleY + 1.0f, consoleW - 2.0f, 27.0f, 6.0f,
-                    0.36f, 0.37f, 0.38f, 0.88f);
+    drawFrame(consoleX, consoleY, consoleW, consoleH, 0.295f, 0.235f);
+    drawRect(consoleX + 1.0f, consoleY + 1.0f, consoleW - 2.0f, 27.0f,
+             0.330f, 0.335f, 0.347f, 1.0f);
+    drawRect(consoleX + 1.0f, consoleY + 28.0f, consoleW - 2.0f, 1.0f,
+             0.085f, 0.090f, 0.105f, 1.0f);
+    drawRect(consoleX + 1.0f, consoleY + 1.0f, 3.0f, 27.0f,
+             1.0f, 0.62f, 0.05f, 0.85f);
     drawText("Console", consoleX + 12.0f, consoleY + 5.0f, fontSmall,
-             0.96f, 0.96f, 0.96f, 0.98f);
+             0.94f, 0.94f, 0.95f, 0.98f);
     drawText("~", consoleX + consoleW - 24.0f, consoleY + 5.0f, fontSmall,
              0.86f, 0.86f, 0.86f, 0.90f);
 
@@ -1229,19 +1396,20 @@ void Menu_L::renderConsoleOverlay(int width, int height) {
                  line.second ? 0.24f : 0.91f, 0.98f);
     }
 
-    drawRoundedRect(consoleX + pad - 2.0f, inputY,
-                    consoleW - pad * 2.0f + 4.0f, inputH, 4.0f,
-                    0.18f, 0.20f, 0.21f, 0.88f);
+    drawSunkenField(consoleX + pad - 2.0f, inputY,
+                    consoleW - pad * 2.0f + 4.0f, inputH, true);
     drawText("> " + GameConsole_GetInput(), consoleX + pad + 4.0f,
              inputY + 5.0f, fontTiny,
              0.96f, 0.96f, 0.96f, 1.0f);
 
     for (int i = 0; i < suggestionCount; ++i) {
         const float sy = suggestionY + i * suggestionRowH;
-        drawRoundedRect(consoleX + 8.0f, sy, consoleW - 16.0f, suggestionRowH - 2.0f, 3.0f,
-                        0.14f, 0.16f, 0.17f, 0.92f);
+        drawRect(consoleX + 8.0f, sy, consoleW - 16.0f, suggestionRowH - 2.0f,
+                 0.16f, 0.17f, 0.19f, 0.92f);
+        drawRect(consoleX + 8.0f, sy, 2.0f, suggestionRowH - 2.0f,
+                 1.0f, 0.62f, 0.05f, 0.55f);
         drawText(suggestions[static_cast<size_t>(i)], consoleX + 16.0f, sy + 3.0f, fontTiny,
-                 0.88f, 0.91f, 0.94f, 0.98f);
+                 0.86f, 0.89f, 0.92f, 0.98f);
     }
 
     drawLine(consoleX + consoleW - 12.0f, consoleY + consoleH - 4.0f,

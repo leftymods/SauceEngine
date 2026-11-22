@@ -167,6 +167,16 @@ private:
                      float alpha = 1.0f, bool crop = true, bool sourceBottomUp = false);
     void drawRect(float x, float y, float w, float h,
                   float r, float g, float b, float alpha);
+    // Source/VGUI style widgets used by the dialogs.
+    void drawFrame(float x, float y, float w, float h, float topShade, float bottomShade);
+    void drawBevelButton(float x, float y, float w, float h, bool pressed, bool hover);
+    void drawSunkenField(float x, float y, float w, float h, bool focused);
+    void drawButtonText(const std::string& label, float x, float y, float w, float h, bool hover);
+    bool hovered(float x, float y, float w, float h) const;
+
+    float mouseX = -1.0f;
+    float mouseY = -1.0f;
+
     void drawRoundedRect(float x, float y, float w, float h, float radius,
                          float r, float g, float b, float alpha);
     void drawLine(float x1, float y1, float x2, float y2, float width, float alpha);
