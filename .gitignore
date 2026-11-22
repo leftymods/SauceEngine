@@ -1,0 +1,16 @@
+# Build directories (build/, build-linux/, build-warn/, ...)
+/build*/
+
+# Build outputs
+/SauceEngine
+/SauceEngine.exe
+libSauceEngine.dll.a
+
+# Third-party libraries extracted from src/libs.rar
+/src/Jolt/
+/src/glfw/
+
+# Editor / OS noise
+.DS_Store
+*.swp
+*~

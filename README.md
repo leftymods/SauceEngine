@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="https://images.steamusercontent.com/ugc/12025251910878128013/1C97E8BC51B4588CE6F4EF1B1FC537C05E9C2C15/?imw=5000&imh=5000&ima=fit&impolicy=Letterbox&imcolor=%23000000&letterbox=false" width="220">
+<img src="logo.png" width="140" alt="Sauce Engine logo">
 
 # Sauce Engine
 
@@ -59,12 +59,10 @@ Sauce Engine is being tested with real Source Engine game content.
 ### Half-Life 2
 
 <p align="center">
-  <img src="https://images.steamusercontent.com/ugc/13062105072635286138/1A47B3D990A6199D130A8D416DD8B7F1DFCE4B5E/" width="49%" alt="Half-Life 2 running on Sauce Engine">
-  <img src="https://images.steamusercontent.com/ugc/14555454646337548697/ADC0242C0DF6ED97C268B6F99198EBC4B0C0DE4D/" width="49%" alt="Half-Life 2 running on Sauce Engine">
-</p>
-
-<p align="center">
-  <i>Half-Life 2 running on Sauce Engine.</i>
+  <i>Half-Life 2 runs on Sauce Engine. The screenshots that used to be shown
+  here were hosted on Steam's image CDN and are no longer available, so they
+  have been removed. Gameplay footage is available on the
+  <a href="https://youtube.com/@piskabobrastudios">YouTube channel</a>.</i>
 </p>
 
 ---
@@ -284,6 +282,10 @@ The development of Sauce Engine is focused on building an independent Source-com
 The project is being developed from the ground up rather than by modifying leaked Source Engine code.
 
 ---
+
+## License
+
+Sauce Engine is released under the [MIT License](LICENSE).
 
 ---
 

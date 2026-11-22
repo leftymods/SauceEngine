@@ -50,6 +50,9 @@ target_include_directories(SauceEngine PRIVATE
 
 target_compile_definitions(SauceEngine PRIVATE JPH_PROFILE_ENABLED NDEBUG)
 
+# Winsock's InetPtonA/InetNtopA are only declared for Windows Vista and newer.
+target_compile_definitions(SauceEngine PRIVATE _WIN32_WINNT=0x0600)
+
 target_link_libraries(SauceEngine PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Jolt/lib/libJolt.a"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/glfw/lib/libglfw3.a"

@@ -10,16 +10,16 @@ enum LightType {
 };
 
 struct RenderLight {
-    LightType type;
+    LightType type = LIGHT_POINT;
     Vec3 pos;
-    Vec3 dir;
-    Vec3 color;
-    float intensity;
+    Vec3 dir{0.0f, -1.0f, 0.0f};
+    Vec3 color{1.0f, 1.0f, 1.0f};
+    float intensity = 200.0f;
 
-    float spotInner;
-    float spotOuter;
+    float spotInner = 0.0f;
+    float spotOuter = 45.0f;
 
-    float distToCamera;
+    float distToCamera = 0.0f;
 };
 
 class Light_L {
