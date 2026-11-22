@@ -43,6 +43,23 @@ POINT_LIGHTS = [
     ((150.0, 140.0, 150.0), (0.65, 0.80, 1.00), 0.85, 420.0),
 ]
 
+# Lighting lab: dim ambient, several colored point lights so the baked
+# lightmaps show clear pools, falloff and color mixing on the surfaces.
+LAB_AMBIENT = (0.045, 0.05, 0.065)
+LAB_SUN_STRENGTH = 0.0
+ACTIVE_AMBIENT = AMBIENT
+ACTIVE_SUN = SUN_STRENGTH
+ACTIVE_LIGHTS = POINT_LIGHTS
+ACTIVE_SPAWN = (0, -190, 48)
+
+LAB_LIGHTS = [
+    ((0.0, -160.0, 200.0), (1.00, 0.86, 0.62), 1.60, 420.0),   # warm key
+    ((260.0, 140.0, 220.0), (0.55, 0.72, 1.00), 1.20, 380.0),  # cool fill
+    ((-260.0, 160.0, 190.0), (1.00, 0.35, 0.28), 1.10, 340.0), # red accent
+    ((-120.0, -210.0, 120.0), (0.45, 1.00, 0.62), 0.95, 300.0),# green accent
+    ((180.0, -40.0, 120.0), (1.00, 0.70, 0.30), 0.80, 260.0),  # low amber
+]
+
 
 class Face(object):
     def __init__(self, corners, normal, material, lm_axes):
@@ -134,16 +151,98 @@ def build_room_faces():
     return faces
 
 
-def bake_luxel(pos, normal):
+def build_light_lab_faces():
+    """A larger test room built for checking baked lighting."""
+    faces = []
+    x0, x1 = -384.0, 384.0
+    y0, y1 = -256.0, 256.0
+    z0, z1 = 0.0, 288.0
+
+    faces.append(Face(
+        [(x0, y0, z0), (x1, y0, z0), (x1, y1, z0), (x0, y1, z0)],
+        (0, 0, 1), "tile/tilefloor001a",
+        ((x0, y0, z0), (1, 0, 0), (0, 1, 0), x1 - x0, y1 - y0)))
+    faces.append(Face(
+        [(x0, y0, z1), (x0, y1, z1), (x1, y1, z1), (x1, y0, z1)],
+        (0, 0, -1), "plaster/plasterceiling002b",
+        ((x0, y0, z1), (1, 0, 0), (0, 1, 0), x1 - x0, y1 - y0)))
+    faces.append(Face(
+        [(x0, y0, z0), (x0, y1, z0), (x0, y1, z1), (x0, y0, z1)],
+        (1, 0, 0), "concrete/concretewall074a",
+        ((x0, y0, z0), (0, 1, 0), (0, 0, 1), y1 - y0, z1 - z0)))
+    faces.append(Face(
+        [(x1, y1, z0), (x1, y0, z0), (x1, y0, z1), (x1, y1, z1)],
+        (-1, 0, 0), "concrete/concretewall074b",
+        ((x1, y0, z0), (0, 1, 0), (0, 0, 1), y1 - y0, z1 - z0)))
+    faces.append(Face(
+        [(x0, y0, z0), (x0, y0, z1), (x1, y0, z1), (x1, y0, z0)],
+        (0, 1, 0), "concrete/concretewall074c",
+        ((x0, y0, z0), (1, 0, 0), (0, 0, 1), x1 - x0, z1 - z0)))
+    faces.append(Face(
+        [(x1, y1, z0), (x1, y1, z1), (x0, y1, z1), (x0, y1, z0)],
+        (0, -1, 0), "concrete/concretewall074a",
+        ((x0, y1, z0), (1, 0, 0), (0, 0, 1), x1 - x0, z1 - z0)))
+
+    # Two pillars that cast visible lighting differences on their sides.
+    for (px, py) in ((-280.0, 160.0), (280.0, -160.0)):
+        hx, hy, hz = 48.0, 48.0, 170.0
+        faces.append(Face(
+            [(px - hx, py - hy, z0), (px - hx, py + hy, z0), (px - hx, py + hy, hz), (px - hx, py - hy, hz)],
+            (1, 0, 0), "metal/metalwall001a",
+            ((px - hx, py - hy, z0), (0, 1, 0), (0, 0, 1), hy * 2, hz)))
+        faces.append(Face(
+            [(px + hx, py + hy, z0), (px + hx, py - hy, z0), (px + hx, py - hy, hz), (px + hx, py + hy, hz)],
+            (-1, 0, 0), "metal/metalwall001a",
+            ((px + hx, py - hy, z0), (0, 1, 0), (0, 0, 1), hy * 2, hz)))
+        faces.append(Face(
+            [(px - hx, py - hy, z0), (px - hx, py - hy, hz), (px + hx, py - hy, hz), (px + hx, py - hy, z0)],
+            (0, 1, 0), "metal/metalwall001b",
+            ((px - hx, py - hy, z0), (1, 0, 0), (0, 0, 1), hx * 2, hz)))
+        faces.append(Face(
+            [(px + hx, py + hy, z0), (px + hx, py + hy, hz), (px - hx, py + hy, hz), (px - hx, py + hy, z0)],
+            (0, -1, 0), "metal/metalwall001b",
+            ((px - hx, py + hy, z0), (1, 0, 0), (0, 0, 1), hx * 2, hz)))
+        faces.append(Face(
+            [(px - hx, py - hy, hz), (px + hx, py - hy, hz), (px + hx, py + hy, hz), (px - hx, py + hy, hz)],
+            (0, 0, 1), "metal/metalwall001d",
+            ((px - hx, py - hy, hz), (1, 0, 0), (0, 1, 0), hx * 2, hy * 2)))
+
+    # Raised platform (tests lighting on a horizontal step + its sides).
+    px0, px1 = -330.0, -140.0
+    py0, py1 = -200.0, -40.0
+    pz = 40.0
+    faces.append(Face(
+        [(px0, py0, pz), (px1, py0, pz), (px1, py1, pz), (px0, py1, pz)],
+        (0, 0, 1), "concrete/concretefloor001a",
+        ((px0, py0, pz), (1, 0, 0), (0, 1, 0), px1 - px0, py1 - py0)))
+    faces.append(Face(
+        [(px0, py0, z0), (px0, py1, z0), (px0, py1, pz), (px0, py0, pz)],
+        (1, 0, 0), "concrete/concretewall074b",
+        ((px0, py0, z0), (0, 1, 0), (0, 0, 1), py1 - py0, pz - z0)))
+    faces.append(Face(
+        [(px1, py1, z0), (px1, py0, z0), (px1, py0, pz), (px1, py1, pz)],
+        (-1, 0, 0), "concrete/concretewall074b",
+        ((px1, py0, z0), (0, 1, 0), (0, 0, 1), py1 - py0, pz - z0)))
+    faces.append(Face(
+        [(px0, py0, z0), (px0, py0, pz), (px1, py0, pz), (px1, py0, z0)],
+        (0, 1, 0), "concrete/concretewall074c",
+        ((px0, py0, z0), (1, 0, 0), (0, 0, 1), px1 - px0, pz - z0)))
+    return faces
+
+
+def bake_luxel(pos, normal, ambient=None, sun_strength=None, lights=None):
     """Returns linear RGB for a world position + surface normal."""
-    r, g, b = AMBIENT
+    if ambient is None: ambient = ACTIVE_AMBIENT
+    if sun_strength is None: sun_strength = ACTIVE_SUN
+    if lights is None: lights = ACTIVE_LIGHTS
+    r, g, b = ambient
     sun = vec_norm(SUN_DIR)
     ndl = max(0.0, -vec_dot(normal, sun))
-    r += SUN_COLOR[0] * SUN_STRENGTH * ndl
-    g += SUN_COLOR[1] * SUN_STRENGTH * ndl
-    b += SUN_COLOR[2] * SUN_STRENGTH * ndl
+    r += SUN_COLOR[0] * sun_strength * ndl
+    g += SUN_COLOR[1] * sun_strength * ndl
+    b += SUN_COLOR[2] * sun_strength * ndl
 
-    for (lpos, color, strength, radius) in POINT_LIGHTS:
+    for (lpos, color, strength, radius) in lights:
         delta = vec_sub(lpos, pos)
         dist = math.sqrt(vec_dot(delta, delta)) or 1.0
         direction = (delta[0] / dist, delta[1] / dist, delta[2] / dist)
@@ -171,7 +270,7 @@ def build_entities():
              '}',
              '{',
              '"classname" "info_player_start"',
-             '"origin" "0 -190 48"',
+             '"origin" "%d %d %d"' % ACTIVE_SPAWN,
              '"angles" "0 0 0"',
              '}',
              '{',
@@ -179,9 +278,11 @@ def build_entities():
              '"origin" "0 0 240"',
              '"angles" "-35 40 0"',
              '"_light" "255 237 204 420"',
-             '"_ambient" "90 105 130 40"',
+             '"_ambient" "%d %d %d 40"' % (int(ACTIVE_AMBIENT[0] * 255),
+                                            int(ACTIVE_AMBIENT[1] * 255),
+                                            int(ACTIVE_AMBIENT[2] * 255)),
              '}']
-    for (pos, color, strength, _radius) in POINT_LIGHTS:
+    for (pos, color, strength, _radius) in ACTIVE_LIGHTS:
         lines += ['{',
                   '"classname" "light"',
                   '"origin" "%d %d %d"' % (int(pos[0]), int(pos[1]), int(pos[2])),
@@ -200,8 +301,9 @@ def build_entities():
     return "\n".join(lines).encode("ascii") + b"\x00"
 
 
-def build_bsp():
-    faces = build_room_faces()
+def build_bsp(faces=None):
+    if faces is None:
+        faces = build_room_faces()
     vertices = []
     edges = []
     surfedges = []
@@ -339,19 +441,35 @@ def build_bsp():
 
 
 def main():
+    global ACTIVE_AMBIENT, ACTIVE_SUN, ACTIVE_LIGHTS, ACTIVE_SPAWN
     parser = argparse.ArgumentParser()
     parser.add_argument("--out", help="full path to the output .bsp")
-    parser.add_argument("--game-dir", help="game directory; map goes to <dir>/maps/sauce_test.bsp")
+    parser.add_argument("--game-dir", help="game directory; map goes to <dir>/maps/<name>.bsp")
+    parser.add_argument("--map", default="sauce_test", choices=["sauce_test", "lightlab"],
+                        help="which test map to generate")
     args = parser.parse_args()
+
+    if args.map == "lightlab":
+        ACTIVE_AMBIENT = LAB_AMBIENT
+        ACTIVE_SUN = LAB_SUN_STRENGTH
+        ACTIVE_LIGHTS = LAB_LIGHTS
+        ACTIVE_SPAWN = (0, -230, 48)
+        map_name = "lightlab"
+    else:
+        ACTIVE_AMBIENT = AMBIENT
+        ACTIVE_SUN = SUN_STRENGTH
+        ACTIVE_LIGHTS = POINT_LIGHTS
+        ACTIVE_SPAWN = (0, -190, 48)
+        map_name = "sauce_test"
 
     out = args.out
     if not out and args.game_dir:
-        out = os.path.join(args.game_dir, "maps", "sauce_test.bsp")
+        out = os.path.join(args.game_dir, "maps", map_name + ".bsp")
     if not out:
-        out = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sauce_test.bsp")
+        out = os.path.join(os.path.dirname(os.path.abspath(__file__)), map_name + ".bsp")
 
     os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
-    data = build_bsp()
+    data = build_bsp(build_light_lab_faces() if args.map == "lightlab" else None)
     with open(out, "wb") as handle:
         handle.write(data)
     print("Wrote %s (%d bytes)" % (out, len(data)))

@@ -234,10 +234,20 @@ also listed as the first entry in the New Game menu.
 ./SauceEngine -game /path/to/Half-Life\ 2/hl2 -map sauce_test
 ```
 
-Regenerate the map after editing the generator:
+A second map, `maps/lightlab.bsp`, is a lighting test room: dim ambient light
+and five colored point lights (warm key, cool fill, red/green accents) plus
+pillars and a raised platform to check falloff, color mixing and lightmap
+sampling. It is listed as "Light Lab" in the New Game menu.
 
 ```bash
-python3 tools/make_test_map.py --out maps/sauce_test.bsp
+./SauceEngine -game /path/to/Half-Life\ 2/hl2 -map lightlab
+```
+
+Regenerate the maps after editing the generator:
+
+```bash
+python3 tools/make_test_map.py --map sauce_test --out maps/sauce_test.bsp
+python3 tools/make_test_map.py --map lightlab --out maps/lightlab.bsp
 ```
 
 ### Building the engine

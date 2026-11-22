@@ -17,6 +17,11 @@ void LoadSettings(const std::string& path) {
         else if (key == "sensitivity") in >> gSettings.mouseSensitivity;
         else if (key == "volume") in >> gSettings.masterVolume;
         else if (key == "menusounds") in >> gSettings.menuSounds;
+        else if (key == "vsync") in >> gSettings.vsync;
+        else if (key == "fov") in >> gSettings.fov;
+        else if (key == "inverty") in >> gSettings.invertY;
+        else if (key == "showfps") in >> gSettings.showFps;
+        else if (key == "crosshair") in >> gSettings.crosshair;
         else {
             std::string ignored;
             std::getline(in, ignored);
@@ -26,6 +31,7 @@ void LoadSettings(const std::string& path) {
     gSettings.height = std::clamp(gSettings.height, 480, 4320);
     gSettings.mouseSensitivity = std::clamp(gSettings.mouseSensitivity, 0.25f, 5.0f);
     gSettings.masterVolume = std::clamp(gSettings.masterVolume, 0.0f, 1.0f);
+    gSettings.fov = std::clamp(gSettings.fov, 60, 120);
 }
 
 void SaveSettings(const std::string& path) {
@@ -37,5 +43,10 @@ void SaveSettings(const std::string& path) {
         << "postprocess " << (gSettings.postProcess ? 1 : 0) << '\n'
         << "sensitivity " << gSettings.mouseSensitivity << '\n'
         << "volume " << gSettings.masterVolume << '\n'
-        << "menusounds " << (gSettings.menuSounds ? 1 : 0) << '\n';
+        << "menusounds " << (gSettings.menuSounds ? 1 : 0) << '\n'
+        << "vsync " << (gSettings.vsync ? 1 : 0) << '\n'
+        << "fov " << gSettings.fov << '\n'
+        << "inverty " << (gSettings.invertY ? 1 : 0) << '\n'
+        << "showfps " << (gSettings.showFps ? 1 : 0) << '\n'
+        << "crosshair " << (gSettings.crosshair ? 1 : 0) << '\n';
 }

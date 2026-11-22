@@ -598,8 +598,8 @@ void Menu_L::centerDialog(int width, int height) {
         dialogX = (width - dialogW) * 0.5f;
         dialogY = (height - dialogH) * 0.5f;
     } else if (dialog == DialogKind::Options) {
-        dialogW = 560.0f * s;
-        dialogH = 380.0f * s;
+        dialogW = 600.0f * s;
+        dialogH = 470.0f * s;
         dialogX = (width - dialogW) * 0.5f;
         dialogY = (height - dialogH) * 0.5f;
     } else if (dialog == DialogKind::LoadGame) {
@@ -814,11 +814,11 @@ void Menu_L::renderOptionsDialog(int width, int height) {
     const float w = dialogW - Style::kDialogMargin * 2.0f * s;
 
     // --- category tabs ---
-    const char* tabs[3] = {"VIDEO", "AUDIO", "INPUT"};
+    const char* tabs[4] = {"VIDEO", "AUDIO", "INPUT", "GAME"};
     float tabX = x;
     const float tabY = dialogY + Style::kContentTop * s;
-    const float tabH = 24.0f * s;
-    for (int i = 0; i < 3; ++i) {
+    const float tabH = 28.0f * s;
+    for (int i = 0; i < 4; ++i) {
         const float textW = textWidth(tabs[i], fontSmall);
         const float tabW = textW + 26.0f * s;
         const bool active = optionsTab == i;
@@ -846,17 +846,26 @@ void Menu_L::renderOptionsDialog(int width, int height) {
     std::snprintf(volText, sizeof(volText), "%d%%", static_cast<int>(gSettings.masterVolume * 100.0f + 0.5f));
 
     // Rows are addressed by a stable id so the hit tests stay in sync.
+    char fovText[32];
+    std::snprintf(fovText, sizeof(fovText), "%d deg", gSettings.fov);
+
     struct RowSpec { int id; const char* label; std::string value; };
     std::vector<RowSpec> rows;
     if (optionsTab == 0) {
         rows.push_back({0, "Resolution", resText});
         rows.push_back({1, "Fullscreen", gSettings.fullscreen ? "On" : "Off"});
         rows.push_back({2, "Post-processing", gSettings.postProcess ? "On" : "Off"});
+        rows.push_back({6, "V-Sync", gSettings.vsync ? "On" : "Off"});
+        rows.push_back({7, "Field of view", fovText});
     } else if (optionsTab == 1) {
         rows.push_back({3, "Master volume", volText});
         rows.push_back({4, "Menu sounds", gSettings.menuSounds ? "On" : "Off"});
-    } else {
+    } else if (optionsTab == 2) {
         rows.push_back({5, "Mouse sensitivity", sensText});
+        rows.push_back({8, "Invert mouse Y", gSettings.invertY ? "On" : "Off"});
+    } else {
+        rows.push_back({9, "Show FPS", gSettings.showFps ? "On" : "Off"});
+        rows.push_back({10, "Crosshair", gSettings.crosshair ? "On" : "Off"});
     }
 
     const float rowsTop = optionsRowsTop(static_cast<int>(rows.size()), dialogY, dialogH, s);
@@ -872,7 +881,9 @@ void Menu_L::renderOptionsDialog(int width, int height) {
         const float bH = 24.0f * s;
         const float leftX = x + w - 56.0f * s;
         const float rightX = x + w - 26.0f * s;
-        const bool isToggle = (rows[i].id == 1 || rows[i].id == 2 || rows[i].id == 4);
+        const bool isToggle = (rows[i].id == 1 || rows[i].id == 2 || rows[i].id == 4 ||
+                               rows[i].id == 6 || rows[i].id == 8 || rows[i].id == 9 ||
+                               rows[i].id == 10);
         if (isToggle) {
             const float toggleW = 54.0f * s;
             const bool tHover = hovered(leftX, bY, toggleW, bH);
@@ -892,7 +903,8 @@ void Menu_L::renderOptionsDialog(int width, int height) {
 
     const char* hint = optionsTab == 0 ? "Display settings apply immediately."
                      : (optionsTab == 1 ? "Master volume affects all game audio."
-                                        : "Mouse sensitivity is applied while playing.");
+                     : (optionsTab == 2 ? "Mouse sensitivity is applied while playing."
+                                        : "HUD and diagnostics."));
     drawText(hint, x, dialogY + dialogH - 44.0f * s, fontTiny,
              kDimBaseText[0], kDimBaseText[1], kDimBaseText[2], 0.85f);
 
@@ -1370,8 +1382,8 @@ bool Menu_L::handleDialogInput(GLFWwindow* window, int width, int height, MenuRe
         if (mouseDown && !mouseWasDown) {
             // Tabs.
             float tabX = x;
-            for (int i = 0; i < 3; ++i) {
-                const char* names[3] = {"VIDEO", "AUDIO", "INPUT"};
+            for (int i = 0; i < 4; ++i) {
+                const char* names[4] = {"VIDEO", "AUDIO", "INPUT", "GAME"};
                 const float tabW = textWidth(names[i], fontSmall) + 26.0f * s;
                 if (pointIn((float)mx, (float)my, tabX, tabY, tabW, tabH)) {
                     optionsTab = i;
@@ -1381,10 +1393,11 @@ bool Menu_L::handleDialogInput(GLFWwindow* window, int width, int height, MenuRe
             }
 
             // Rows of the current tab.
-            int indices[3] = {0, 1, 2};
-            int count = 3;
+            int indices[5] = {0, 1, 2, 6, 7};
+            int count = 5;
             if (optionsTab == 1) { indices[0] = 3; indices[1] = 4; count = 2; }
-            else if (optionsTab == 2) { indices[0] = 5; count = 1; }
+            else if (optionsTab == 2) { indices[0] = 5; indices[1] = 8; count = 2; }
+            else if (optionsTab == 3) { indices[0] = 9; indices[1] = 10; count = 2; }
             const float rowsTop = optionsRowsTop(count, dialogY, dialogH, s);
             for (int slot = 0; slot < count; ++slot) {
                 const int id = indices[slot];
@@ -1396,7 +1409,8 @@ bool Menu_L::handleDialogInput(GLFWwindow* window, int width, int height, MenuRe
                 const float rightX = x + w - 26.0f * s;
                 const bool minus = pointIn((float)mx, (float)my, leftX, bY, bW, bH);
                 const bool plus = pointIn((float)mx, (float)my, rightX, bY, bW, bH);
-                const bool toggleHit = (id == 1 || id == 2 || id == 4) &&
+                const bool toggleHit = (id == 1 || id == 2 || id == 4 || id == 6 ||
+                                        id == 8 || id == 9 || id == 10) &&
                     pointIn((float)mx, (float)my, leftX, bY, 54.0f * s, bH);
                 if (!minus && !plus && !toggleHit) continue;
 
@@ -1434,6 +1448,17 @@ bool Menu_L::handleDialogInput(GLFWwindow* window, int width, int height, MenuRe
                 } else if (id == 5) {
                     gSettings.mouseSensitivity = std::clamp(
                         gSettings.mouseSensitivity + (plus ? 0.25f : -0.25f), 0.25f, 5.0f);
+                } else if (id == 6) {
+                    gSettings.vsync = !gSettings.vsync;
+                    if (ownerWindow) glfwSwapInterval(gSettings.vsync ? 1 : 0);
+                } else if (id == 7) {
+                    gSettings.fov = std::clamp(gSettings.fov + (plus ? 5 : -5), 60, 120);
+                } else if (id == 8) {
+                    gSettings.invertY = !gSettings.invertY;
+                } else if (id == 9) {
+                    gSettings.showFps = !gSettings.showFps;
+                } else if (id == 10) {
+                    gSettings.crosshair = !gSettings.crosshair;
                 }
                 persistSettings();
                 return true;

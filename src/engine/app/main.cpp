@@ -1018,6 +1018,7 @@ int main(int argc, char* argv[]) {
     }
 
     glfwMakeContextCurrent(window);
+    glfwSwapInterval(gSettings.vsync ? 1 : 0);
     glfwFocusWindow(window);
     if (gSettings.fullscreen) {
         if (GLFWmonitor* monitor = glfwGetPrimaryMonitor()) {
@@ -1712,7 +1713,8 @@ int main(int argc, char* argv[]) {
                 glfwGetCursorPos(window, &ncx, &ncy);
                 if (!demoMode && !consoleOpen && !player.dead) {
                     player.yaw += static_cast<float>(ncx - curX) * 0.1f * gSettings.mouseSensitivity;
-                    player.pitch += static_cast<float>(ncy - curY) * 0.1f * gSettings.mouseSensitivity;
+                    player.pitch += static_cast<float>(ncy - curY) * 0.1f * gSettings.mouseSensitivity *
+                                    (gSettings.invertY ? -1.0f : 1.0f);
                     curX = ncx;
                     curY = ncy;
                 }
@@ -2085,7 +2087,7 @@ int main(int argc, char* argv[]) {
                 float aspect = (windowHeight > 0) ? static_cast<float>(windowWidth) / static_cast<float>(windowHeight) : 1.77f;
                 glMatrixMode(GL_PROJECTION);
                 glLoadIdentity();
-                float fH = tan(90.0f / 360.0f * 3.14159f);
+                float fH = tan(std::clamp(gSettings.fov, 60, 120) / 360.0f * 3.14159f);
                 float fW = fH * aspect;
                 glFrustum(-fW, fW, -fH, fH, 1.0f, 30000.0f);
                 glMatrixMode(GL_MODELVIEW);
@@ -2164,6 +2166,44 @@ int main(int argc, char* argv[]) {
 
 
                 if (openPauseMenu) menu.captureCurrentFrame(windowWidth, windowHeight);
+
+                if (gSettings.showFps) {
+                    const double nowFps = glfwGetTime();
+                    static double fpsWindow = 0.0;
+                    static int fpsFrames = 0;
+                    static float fpsValue = 0.0f;
+                    ++fpsFrames;
+                    if (nowFps - fpsWindow >= 0.5) {
+                        fpsValue = static_cast<float>(fpsFrames / (nowFps - fpsWindow));
+                        fpsWindow = nowFps;
+                        fpsFrames = 0;
+                    }
+                    if (fpsValue > 0.0f) {
+                        glPushAttrib(GL_ALL_ATTRIB_BITS);
+                        glMatrixMode(GL_PROJECTION);
+                        glPushMatrix();
+                        glLoadIdentity();
+                        glOrtho(0, windowWidth, windowHeight, 0, -1, 1);
+                        glMatrixMode(GL_MODELVIEW);
+                        glPushMatrix();
+                        glLoadIdentity();
+                        glDisable(GL_DEPTH_TEST);
+                        glDisable(GL_LIGHTING);
+                        glEnable(GL_BLEND);
+                        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+                        char fpsText[32];
+                        std::snprintf(fpsText, sizeof(fpsText), "%3.0f FPS", fpsValue);
+                        const int size = std::max(11, windowHeight / 80);
+                        TextRender::drawMono(size, fpsText,
+                                             windowWidth - 24.0f - TextRender::monoWidth(size, fpsText),
+                                             18.0f, 0.95f, 0.95f, 0.96f, 0.9f);
+                        glMatrixMode(GL_MODELVIEW);
+                        glPopMatrix();
+                        glMatrixMode(GL_PROJECTION);
+                        glPopMatrix();
+                        glPopAttrib();
+                    }
+                }
 
                 menu.handleConsoleOverlayInput(window, windowWidth, windowHeight);
                 menu.renderConsoleOverlay(windowWidth, windowHeight);

@@ -2,6 +2,7 @@
 #include "weapon_l.h"
 #include <GLFW/glfw3.h>
 #include <GL/gl.h>
+#include "settings.h"
 #include "text_render.h"
 #include <string>
 #include <algorithm>
@@ -123,7 +124,7 @@ void HUD_L::render(int screenWidth,int screenHeight,const Camera& player,const W
 
 
     const float cx=screenWidth*0.5f, cy=screenHeight*0.5f;
-    if (!player.dead) {
+    if (!player.dead && gSettings.crosshair) {
         glColor4f(1,1,1,0.78f);
         glLineWidth(1.5f);
         glBegin(GL_LINES);

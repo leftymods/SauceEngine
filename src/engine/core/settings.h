@@ -12,6 +12,11 @@ struct EngineSettings {
     float mouseSensitivity = 1.0f;
     float masterVolume = 0.8f;
     bool menuSounds = true;
+    bool vsync = true;
+    int fov = 90;
+    bool invertY = false;
+    bool showFps = false;
+    bool crosshair = true;
 };
 
 extern EngineSettings gSettings;

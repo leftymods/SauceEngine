@@ -490,6 +490,13 @@ void Menu_L::loadChapters() {
         testMap.mapName = "sauce_test";
         testMap.image = "materials/gamepadui/chapter1";
         chapters.insert(chapters.begin(), testMap);
+
+        MenuChapter lightLab;
+        lightLab.number = 0;
+        lightLab.name = "Light Lab";
+        lightLab.mapName = "lightlab";
+        lightLab.image = "materials/gamepadui/chapter2";
+        chapters.insert(chapters.begin() + 1, lightLab);
     }
     chapterTextures.assign(chapters.size(), TextureRef{});
     if (!chapters.empty()) {
