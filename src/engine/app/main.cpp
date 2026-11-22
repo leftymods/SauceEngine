@@ -1383,8 +1383,9 @@ int main(int argc, char* argv[]) {
             }
 
             glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-            double curX = 0.0, curY = 0.0;
-            glfwGetCursorPos(window, &curX, &curY);
+            double curX = windowWidth * 0.5;
+            double curY = windowHeight * 0.5;
+            glfwSetCursorPos(window, curX, curY);
 
             glEnable(GL_DEPTH_TEST);
             glEnable(GL_TEXTURE_2D);
@@ -1651,11 +1652,24 @@ int main(int argc, char* argv[]) {
                 double ncx = curX, ncy = curY;
                 glfwGetCursorPos(window, &ncx, &ncy);
                 if (!demoMode && !consoleOpen && !player.dead) {
-                    player.yaw += static_cast<float>(ncx - curX) * 0.1f * gSettings.mouseSensitivity;
-                    player.pitch += static_cast<float>(ncy - curY) * 0.1f * gSettings.mouseSensitivity *
-                                    (gSettings.invertY ? -1.0f : 1.0f);
-                    curX = ncx;
-                    curY = ncy;
+                    // Mouse look is computed relative to the window center and the
+                    // pointer is warped back every frame. This keeps the camera
+                    // stable on compositors (like WSLg) where GLFW's virtual
+                    // cursor does not recentre by itself.
+                    const double centerX = windowWidth * 0.5;
+                    const double centerY = windowHeight * 0.5;
+                    const double dx = ncx - centerX;
+                    const double dy = ncy - centerY;
+                    const bool sane = std::abs(dx) < windowWidth * 0.5 &&
+                                      std::abs(dy) < windowHeight * 0.5;
+                    if (sane && (std::abs(dx) > 0.5 || std::abs(dy) > 0.5)) {
+                        player.yaw += static_cast<float>(dx) * 0.1f * gSettings.mouseSensitivity;
+                        player.pitch += static_cast<float>(dy) * 0.1f * gSettings.mouseSensitivity *
+                                        (gSettings.invertY ? -1.0f : 1.0f);
+                    }
+                    glfwSetCursorPos(window, centerX, centerY);
+                    curX = centerX;
+                    curY = centerY;
                 }
                 if (player.pitch > 89.0f) player.pitch = 89.0f;
                 if (player.pitch < -89.0f) player.pitch = -89.0f;
