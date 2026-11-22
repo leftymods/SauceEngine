@@ -15,3 +15,6 @@ libSauceEngine.dll.a
 .DS_Store
 *.swp
 *~
+
+# Runtime config
+/sauce.cfg

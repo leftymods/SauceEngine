@@ -866,6 +866,7 @@ void Menu_L::renderOptionsDialog(int width, int height) {
     } else {
         rows.push_back({9, "Show FPS", gSettings.showFps ? "On" : "Off"});
         rows.push_back({10, "Crosshair", gSettings.crosshair ? "On" : "Off"});
+        rows.push_back({11, "Blob shadows", gSettings.shadows ? "On" : "Off"});
     }
 
     const float rowsTop = optionsRowsTop(static_cast<int>(rows.size()), dialogY, dialogH, s);
@@ -883,7 +884,7 @@ void Menu_L::renderOptionsDialog(int width, int height) {
         const float rightX = x + w - 26.0f * s;
         const bool isToggle = (rows[i].id == 1 || rows[i].id == 2 || rows[i].id == 4 ||
                                rows[i].id == 6 || rows[i].id == 8 || rows[i].id == 9 ||
-                               rows[i].id == 10);
+                               rows[i].id == 10 || rows[i].id == 11);
         if (isToggle) {
             const float toggleW = 54.0f * s;
             const bool tHover = hovered(leftX, bY, toggleW, bH);
@@ -1397,7 +1398,7 @@ bool Menu_L::handleDialogInput(GLFWwindow* window, int width, int height, MenuRe
             int count = 5;
             if (optionsTab == 1) { indices[0] = 3; indices[1] = 4; count = 2; }
             else if (optionsTab == 2) { indices[0] = 5; indices[1] = 8; count = 2; }
-            else if (optionsTab == 3) { indices[0] = 9; indices[1] = 10; count = 2; }
+            else if (optionsTab == 3) { indices[0] = 9; indices[1] = 10; indices[2] = 11; count = 3; }
             const float rowsTop = optionsRowsTop(count, dialogY, dialogH, s);
             for (int slot = 0; slot < count; ++slot) {
                 const int id = indices[slot];
@@ -1410,7 +1411,7 @@ bool Menu_L::handleDialogInput(GLFWwindow* window, int width, int height, MenuRe
                 const bool minus = pointIn((float)mx, (float)my, leftX, bY, bW, bH);
                 const bool plus = pointIn((float)mx, (float)my, rightX, bY, bW, bH);
                 const bool toggleHit = (id == 1 || id == 2 || id == 4 || id == 6 ||
-                                        id == 8 || id == 9 || id == 10) &&
+                                        id == 8 || id == 9 || id == 10 || id == 11) &&
                     pointIn((float)mx, (float)my, leftX, bY, 54.0f * s, bH);
                 if (!minus && !plus && !toggleHit) continue;
 
@@ -1459,6 +1460,8 @@ bool Menu_L::handleDialogInput(GLFWwindow* window, int width, int height, MenuRe
                     gSettings.showFps = !gSettings.showFps;
                 } else if (id == 10) {
                     gSettings.crosshair = !gSettings.crosshair;
+                } else if (id == 11) {
+                    gSettings.shadows = !gSettings.shadows;
                 }
                 persistSettings();
                 return true;

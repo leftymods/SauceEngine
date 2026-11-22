@@ -17,6 +17,7 @@ struct EngineSettings {
     bool invertY = false;
     bool showFps = false;
     bool crosshair = true;
+    bool shadows = true;
 };
 
 extern EngineSettings gSettings;

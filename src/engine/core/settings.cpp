@@ -22,6 +22,7 @@ void LoadSettings(const std::string& path) {
         else if (key == "inverty") in >> gSettings.invertY;
         else if (key == "showfps") in >> gSettings.showFps;
         else if (key == "crosshair") in >> gSettings.crosshair;
+        else if (key == "shadows") in >> gSettings.shadows;
         else {
             std::string ignored;
             std::getline(in, ignored);
@@ -48,5 +49,6 @@ void SaveSettings(const std::string& path) {
         << "fov " << gSettings.fov << '\n'
         << "inverty " << (gSettings.invertY ? 1 : 0) << '\n'
         << "showfps " << (gSettings.showFps ? 1 : 0) << '\n'
-        << "crosshair " << (gSettings.crosshair ? 1 : 0) << '\n';
+        << "crosshair " << (gSettings.crosshair ? 1 : 0) << '\n'
+        << "shadows " << (gSettings.shadows ? 1 : 0) << '\n';
 }

@@ -76,7 +76,7 @@ static void DrawLoadingScreen(GLFWwindow* window, const std::string& mapName,
     const int w = std::max(1, windowWidth);
     const int h = std::max(1, windowHeight);
     const float clamped = std::clamp(progress, 0.0f, 1.0f);
-    const float s = std::max(0.65f, std::min(1.45f, std::min(w / 1920.0f, h / 1080.0f)));
+    const float s = std::max(0.7f, std::min(1.4f, std::min(w / 1920.0f, h / 1080.0f)));
     const double now = glfwGetTime();
 
     glfwMakeContextCurrent(window);
@@ -102,153 +102,92 @@ static void DrawLoadingScreen(GLFWwindow* window, const std::string& mapName,
     glClearColor(Style::kBg[0], Style::kBg[1], Style::kBg[2], 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    glDisable(GL_TEXTURE_2D);
-    glColor4f(Style::kBg[0], Style::kBg[1], Style::kBg[2], 1.0f);
-    glBegin(GL_QUADS);
-    glVertex2f(0, 0);
-    glVertex2f((float)w, 0);
-    glVertex2f((float)w, (float)h);
-    glVertex2f(0, (float)h);
-    glEnd();
+    // Centered content block (no top/bottom bars).
+    const float contentW = std::min(560.0f * s, w * 0.62f);
+    const float x = (w - contentW) * 0.5f;
+    const float topY = h * 0.40f;
 
-    const int micro = std::max(10, (int)(Style::kTypeMicro * s));
-    const float bandH = Style::kBandHeight * s;
+    const int overlineSize = std::max(11, (int)(Style::kTypeSupport * s));
+    const char* overline = "SAUCE ENGINE";
+    TextRender::drawMono(overlineSize, overline,
+                         x + (contentW - TextRender::monoWidth(overlineSize, overline)) * 0.5f,
+                         topY, Style::kTextMuted[0], Style::kTextMuted[1], Style::kTextMuted[2], 0.95f);
 
-    // --- top frieze band
-    glColor4f(Style::kSurface[0], Style::kSurface[1], Style::kSurface[2], 0.96f);
-    glBegin(GL_QUADS);
-    glVertex2f(0, 0); glVertex2f((float)w, 0);
-    glVertex2f((float)w, bandH); glVertex2f(0, bandH);
-    glEnd();
-    glColor4f(Style::kBorderSubtle[0], Style::kBorderSubtle[1], Style::kBorderSubtle[2], 0.95f);
-    glBegin(GL_QUADS);
-    glVertex2f(0, bandH); glVertex2f((float)w, bandH);
-    glVertex2f((float)w, bandH + Style::kHairline); glVertex2f(0, bandH + Style::kHairline);
-    glEnd();
-
-    TextRender::drawMono(micro, "SAUCE ENGINE / LOADING", 24.0f * s,
-                         (bandH - micro * 1.2f) * 0.5f,
-                         Style::kTextMuted[0], Style::kTextMuted[1], Style::kTextMuted[2], 0.85f);
-    {
-        char res[32];
-        std::snprintf(res, sizeof(res), "%d x %d", w, h);
-        const float rw = TextRender::monoWidth(micro, res);
-        TextRender::drawMono(micro, res, w - 24.0f * s - rw, (bandH - micro * 1.2f) * 0.5f,
-                             Style::kTextMuted[0], Style::kTextMuted[1], Style::kTextMuted[2], 0.7f);
-    }
-
-    // --- baseline ruler (same signature as the main menu)
-    {
-        const float rulerX = 72.0f * s;
-        const float top = bandH + 24.0f * s;
-        const float bottom = h - bandH - 24.0f * s;
-        glColor4f(Style::kBorderSubtle[0], Style::kBorderSubtle[1], Style::kBorderSubtle[2], 0.6f);
-        glBegin(GL_QUADS);
-        glVertex2f(rulerX, top); glVertex2f(rulerX + Style::kRulerWidth, top);
-        glVertex2f(rulerX + Style::kRulerWidth, bottom); glVertex2f(rulerX, bottom);
-        glEnd();
-        int index = 0;
-        for (float y = top; y <= bottom; y += 12.0f * s, ++index) {
-            const bool major = (index % 5) == 0;
-            const float len = (major ? 10.0f : 5.0f) * s;
-            glColor4f(Style::kBorderSubtle[0], Style::kBorderSubtle[1], Style::kBorderSubtle[2],
-                      major ? 0.8f : 0.45f);
-            glBegin(GL_QUADS);
-            glVertex2f(rulerX - len, y); glVertex2f(rulerX, y);
-            glVertex2f(rulerX, y + Style::kHairline); glVertex2f(rulerX - len, y + Style::kHairline);
-            glEnd();
-        }
-    }
-
-    // --- wordmark band
-    const int titleSize = Style::kTypeDisplay;
+    const int titleSize = std::max(32, (int)(48.0f * s));
     const char* title = "LOADING";
-    const float titleWidth = TextRender::width(titleSize, title, true);
-    TextRender::draw(titleSize, title, (w - titleWidth) * 0.5f, h * 0.33f,
-                     Style::kText[0], Style::kText[1], Style::kText[2], 0.97f, true);
-    const float ruleW = 120.0f * s;
-    const float ruleY = h * 0.33f + titleSize * 1.18f;
-    glColor4f(Style::kAccent[0], Style::kAccent[1], Style::kAccent[2], 1.0f);
-    glBegin(GL_QUADS);
-    glVertex2f((w - ruleW) * 0.5f, ruleY); glVertex2f((w + ruleW) * 0.5f, ruleY);
-    glVertex2f((w + ruleW) * 0.5f, ruleY + 2.0f * s); glVertex2f((w - ruleW) * 0.5f, ruleY + 2.0f * s);
-    glEnd();
+    const float titleWidth = TextRender::width(titleSize, title, false);
+    TextRender::draw(titleSize, title, x + (contentW - titleWidth) * 0.5f,
+                     topY + 24.0f * s,
+                     Style::kText[0], Style::kText[1], Style::kText[2], 1.0f, false);
 
     if (!mapName.empty()) {
-        const int mapSize = std::max(11, (int)(Style::kTypeMicro * s));
-        const float mapWidth = TextRender::monoWidth(mapSize, mapName);
-        TextRender::drawMono(mapSize, mapName, (w - mapWidth) * 0.5f, ruleY + 20.0f * s,
-                             Style::kTextMuted[0], Style::kTextMuted[1], Style::kTextMuted[2], 0.95f);
+        const int mapSize = std::max(12, (int)(Style::kTypeBody * s));
+        TextRender::drawMono(mapSize, mapName,
+                             x + (contentW - TextRender::monoWidth(mapSize, mapName)) * 0.5f,
+                             topY + 24.0f * s + titleSize * 1.25f,
+                             Style::kTextDim[0], Style::kTextDim[1], Style::kTextDim[2], 0.95f);
     }
 
-    // --- progress frieze band
-    {
-        const float barW = w * 0.44f;
-        const float barH = 3.0f * s;
-        const float barX = (w - barW) * 0.5f;
-        const float barY = h * 0.66f;
+    // Progress: visible track, accent fill, mono percentage above it.
+    const float barH = std::max(8.0f, 8.0f * s);
+    const float barY = topY + 24.0f * s + titleSize * 1.25f + (mapName.empty() ? 40.0f : 64.0f) * s;
 
-        glColor4f(Style::kBorderSubtle[0], Style::kBorderSubtle[1], Style::kBorderSubtle[2], 0.8f);
+    glDisable(GL_TEXTURE_2D);
+    glColor4f(Style::kBorderSubtle[0], Style::kBorderSubtle[1], Style::kBorderSubtle[2], 1.0f);
+    glBegin(GL_QUADS);
+    glVertex2f(x - 1.0f, barY - 1.0f);
+    glVertex2f(x + contentW + 1.0f, barY - 1.0f);
+    glVertex2f(x + contentW + 1.0f, barY + barH + 1.0f);
+    glVertex2f(x - 1.0f, barY + barH + 1.0f);
+    glEnd();
+
+    glColor4f(Style::kSurfaceHi[0], Style::kSurfaceHi[1], Style::kSurfaceHi[2], 1.0f);
+    glBegin(GL_QUADS);
+    glVertex2f(x, barY); glVertex2f(x + contentW, barY);
+    glVertex2f(x + contentW, barY + barH); glVertex2f(x, barY + barH);
+    glEnd();
+
+    if (clamped > 0.001f) {
+        const float fillW = contentW * clamped;
+        glColor4f(Style::kAccent[0], Style::kAccent[1], Style::kAccent[2], 1.0f);
         glBegin(GL_QUADS);
-        glVertex2f(barX, barY); glVertex2f(barX + barW, barY);
-        glVertex2f(barX + barW, barY + barH); glVertex2f(barX, barY + barH);
+        glVertex2f(x, barY); glVertex2f(x + fillW, barY);
+        glVertex2f(x + fillW, barY + barH); glVertex2f(x, barY + barH);
         glEnd();
 
-        if (clamped > 0.0f) {
-            glColor4f(Style::kAccent[0], Style::kAccent[1], Style::kAccent[2], 1.0f);
+        const float phase = static_cast<float>(std::fmod(now * 0.9, 1.0));
+        const float shimmerW = std::max(36.0f, contentW * 0.08f);
+        const float shimmerX = x + (fillW + shimmerW) * phase - shimmerW;
+        const float shimmerMin = std::max(x, shimmerX);
+        const float shimmerMax = std::min(x + fillW, shimmerX + shimmerW);
+        if (shimmerMax > shimmerMin) {
+            glColor4f(1.0f, 0.96f, 0.86f, 0.28f);
             glBegin(GL_QUADS);
-            glVertex2f(barX, barY); glVertex2f(barX + barW * clamped, barY);
-            glVertex2f(barX + barW * clamped, barY + barH); glVertex2f(barX, barY + barH);
+            glVertex2f(shimmerMin, barY); glVertex2f(shimmerMax, barY);
+            glVertex2f(shimmerMax, barY + barH); glVertex2f(shimmerMin, barY + barH);
             glEnd();
-
-            const float phase = static_cast<float>(std::fmod(now * 0.9, 1.0));
-            const float shimmerW = std::max(24.0f, barW * 0.06f);
-            const float shimmerX = barX + (barW * clamped + shimmerW) * phase - shimmerW;
-            const float shimmerMin = std::max(barX, shimmerX);
-            const float shimmerMax = std::min(barX + barW * clamped, shimmerX + shimmerW);
-            if (shimmerMax > shimmerMin) {
-                glColor4f(1.0f, 0.92f, 0.86f, 0.25f);
-                glBegin(GL_QUADS);
-                glVertex2f(shimmerMin, barY); glVertex2f(shimmerMax, barY);
-                glVertex2f(shimmerMax, barY + barH); glVertex2f(shimmerMin, barY + barH);
-                glEnd();
-            }
         }
     }
 
-    {
-        const int statusSize = micro;
-        TextRender::drawMono(statusSize, detail, (w - w * 0.44f) * 0.5f, h * 0.66f + 16.0f * s,
-                             Style::kTextMuted[0], Style::kTextMuted[1], Style::kTextMuted[2], 0.9f);
-        char percent[16];
-        std::snprintf(percent, sizeof(percent), "%d%%", static_cast<int>(clamped * 100.0f + 0.5f));
-        const float pw = TextRender::monoWidth(statusSize, percent);
-        TextRender::drawMono(statusSize, percent,
-                             (w + w * 0.44f) * 0.5f - pw, h * 0.66f + 16.0f * s,
-                             Style::kText[0], Style::kText[1], Style::kText[2], 0.9f);
-    }
+    const int smallSize = std::max(11, (int)(Style::kTypeSupport * s));
+    char percent[16];
+    std::snprintf(percent, sizeof(percent), "%d%%", static_cast<int>(clamped * 100.0f + 0.5f));
+    TextRender::drawMono(smallSize, percent,
+                         x + contentW - TextRender::monoWidth(smallSize, percent),
+                         barY - smallSize * 1.6f,
+                         Style::kTextDim[0], Style::kTextDim[1], Style::kTextDim[2], 1.0f);
 
-    // --- bottom frieze band
+    TextRender::drawMono(smallSize, detail, x, barY + barH + 14.0f * s,
+                         Style::kTextMuted[0], Style::kTextMuted[1], Style::kTextMuted[2], 0.95f);
+
+    // Small footer, centered.
     {
-        const float bottomY = h - bandH;
-        glColor4f(Style::kBorderSubtle[0], Style::kBorderSubtle[1], Style::kBorderSubtle[2], 0.95f);
-        glBegin(GL_QUADS);
-        glVertex2f(0, bottomY); glVertex2f((float)w, bottomY);
-        glVertex2f((float)w, bottomY + Style::kHairline); glVertex2f(0, bottomY + Style::kHairline);
-        glEnd();
-        glColor4f(Style::kSurface[0], Style::kSurface[1], Style::kSurface[2], 0.96f);
-        glBegin(GL_QUADS);
-        glVertex2f(0, bottomY); glVertex2f((float)w, bottomY);
-        glVertex2f((float)w, (float)h); glVertex2f(0, (float)h);
-        glEnd();
-        TextRender::drawMono(micro, "SAUCE ENGINE", 24.0f * s,
-                             bottomY + (bandH - micro * 1.2f) * 0.5f,
-                             Style::kTextMuted[0], Style::kTextMuted[1], Style::kTextMuted[2], 0.75f);
-        const char* status = "LOADING LEVEL";
-        const float sw = TextRender::monoWidth(micro, status);
-        TextRender::drawMono(micro, status, w - 24.0f * s - sw,
-                             bottomY + (bandH - micro * 1.2f) * 0.5f,
-                             Style::kAccent[0], Style::kAccent[1], Style::kAccent[2], 0.9f);
+        const int footSize = std::max(10, (int)(Style::kTypeMicro * s));
+        const char* foot = "SOURCE-COMPATIBLE ENGINE";
+        TextRender::drawMono(footSize, foot,
+                             (w - TextRender::monoWidth(footSize, foot)) * 0.5f,
+                             h - 40.0f * s,
+                             Style::kTextMuted[0], Style::kTextMuted[1], Style::kTextMuted[2], 0.55f);
     }
 
     glMatrixMode(GL_MODELVIEW);
@@ -260,7 +199,7 @@ static void DrawLoadingScreen(GLFWwindow* window, const std::string& mapName,
     glfwPollEvents();
 
     if (progress >= 0.97f && loadingStarted > 0.0) {
-        while (glfwGetTime() - loadingStarted < 0.6 && !glfwWindowShouldClose(window)) {
+        while (glfwGetTime() - loadingStarted < 0.8 && !glfwWindowShouldClose(window)) {
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
             glfwPollEvents();
         }
@@ -2099,13 +2038,18 @@ int main(int argc, char* argv[]) {
                 DrawSkybox({0, 0, 0}, skyTex);
                 lightManager.applyLights(renderCameraPos);
                 glTranslatef(-renderCameraPos.x, -renderCameraPos.y, -renderCameraPos.z);
+                glEnable(GL_CULL_FACE);
+                glCullFace(GL_BACK);
                 mapParser.renderWorld();
+                glDisable(GL_CULL_FACE);
                 if (!disableLighting) mapParser.renderLightmaps();
                 mapParser.renderTransparentWorld();
                 mapParser.renderCubemapReflections(player.pos, cubemapManager);
                 if(flashlightEnabled)RenderFlashlight(player,renderCameraPos,mapParser,propManager,entManager,true,false);
-                RenderStaticPropBlobShadows(propManager, mapParser);
-                RenderEntityBlobShadows(entManager, mapParser);
+                if (gSettings.shadows) {
+                    RenderStaticPropBlobShadows(propManager, mapParser);
+                    RenderEntityBlobShadows(entManager, mapParser);
+                }
                 ModelLightmap_L::Begin(mapParser,!disableLighting);
                 propManager.render(&mapParser);
                 entManager.renderAll();

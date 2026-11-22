@@ -45,7 +45,7 @@ POINT_LIGHTS = [
 
 # Lighting lab: dim ambient, several colored point lights so the baked
 # lightmaps show clear pools, falloff and color mixing on the surfaces.
-LAB_AMBIENT = (0.045, 0.05, 0.065)
+LAB_AMBIENT = (0.0, 0.0, 0.0)
 LAB_SUN_STRENGTH = 0.0
 ACTIVE_AMBIENT = AMBIENT
 ACTIVE_SUN = SUN_STRENGTH
