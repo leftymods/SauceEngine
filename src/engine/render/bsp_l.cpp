@@ -752,10 +752,11 @@ void BSP_L::buildLightmaps() {
             }
 
 
-            const auto encode=[](float v){ return std::pow(std::clamp(v,0.0f,1.0f),0.45454547f); };
-            const int r = std::min(255, std::max(0, static_cast<int>(std::lround(encode(linearR) * 255.0f))));
-            const int g = std::min(255, std::max(0, static_cast<int>(std::lround(encode(linearG) * 255.0f))));
-            const int b = std::min(255, std::max(0, static_cast<int>(std::lround(encode(linearB) * 255.0f))));
+            // Store linear light. The old gamma encode washed out dark areas,
+            // which made baked lighting look flat.
+            const int r = std::min(255, std::max(0, static_cast<int>(std::lround(std::clamp(linearR,0.0f,1.0f) * 255.0f))));
+            const int g = std::min(255, std::max(0, static_cast<int>(std::lround(std::clamp(linearG,0.0f,1.0f) * 255.0f))));
+            const int b = std::min(255, std::max(0, static_cast<int>(std::lround(std::clamp(linearB,0.0f,1.0f) * 255.0f))));
 
             if (std::max(r, std::max(g, b)) >= 225) faceBloomEligible[fIdx] = 1;
 

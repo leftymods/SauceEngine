@@ -524,7 +524,7 @@ void Menu_L::renderMainMenu(int width, int height) {
     const float s = std::max(0.65f, std::min(1.45f, base));
 
     // --- left navigation rail (asymmetric split, clear focal column)
-    const float railW = 560.0f * s;
+    const float railW = 640.0f * s;
     drawRect(0, 0, railW, (float)height,
              Style::kSurface[0], Style::kSurface[1], Style::kSurface[2], 0.94f);
     drawRect(railW, 0, Style::kHairline, (float)height,
@@ -533,12 +533,21 @@ void Menu_L::renderMainMenu(int width, int height) {
     const float left = Style::kSpace6 * s;
 
     // wordmark + support line
-    drawText(upperTitle(title), left, 96.0f * s, fontTitle,
+    drawText(upperTitle(title), left, 88.0f * s, fontTitle,
              Style::kText[0], Style::kText[1], Style::kText[2], 1.0f);
-    drawRect(left, 96.0f * s + fontTitle.pixelHeight * 1.16f, 120.0f * s, 2.0f * s,
+    drawRect(left, 88.0f * s + fontTitle.pixelHeight * 1.16f, 120.0f * s, 2.0f * s,
              Style::kAccent[0], Style::kAccent[1], Style::kAccent[2], 1.0f);
-    drawText("SOURCE-COMPATIBLE ENGINE", left, 96.0f * s + fontTitle.pixelHeight * 1.16f + 12.0f * s,
+    drawText("SOURCE-COMPATIBLE ENGINE", left, 88.0f * s + fontTitle.pixelHeight * 1.16f + 12.0f * s,
              fontTiny, Style::kTextMuted[0], Style::kTextMuted[1], Style::kTextMuted[2], 0.95f);
+
+    // section label above the menu list
+    {
+        const int micro = std::max(10, (int)(Style::kTypeMicro * s));
+        TextRender::drawMono(micro, pauseMode ? "PAUSED" : "MAIN MENU", left, 250.0f * s,
+                             Style::kAccent[0], Style::kAccent[1], Style::kAccent[2], 0.9f);
+        drawRect(left, 250.0f * s + micro * 1.5f, 32.0f * s, Style::kHairline,
+                 Style::kBorderSubtle[0], Style::kBorderSubtle[1], Style::kBorderSubtle[2], 0.9f);
+    }
 
     const std::vector<std::string> items = pauseMode
         ? std::vector<std::string>{"Resume", "New Game", "Load Game", "Options", "Main Menu", "Quit"}
@@ -556,7 +565,7 @@ void Menu_L::renderMainMenu(int width, int height) {
     }
 
     const float rowH = Style::kRowHeight * s;
-    const float itemsTop = 300.0f * s;
+    const float itemsTop = 282.0f * s;
     for (size_t i = 0; i < items.size(); ++i) {
         const bool pressed = pressedControl == static_cast<int>(i) && mouseWasDown;
         const bool hover = hoverControl == static_cast<int>(i);
@@ -576,17 +585,25 @@ void Menu_L::renderMainMenu(int width, int height) {
                  (hover || pressed) ? Style::kText[2] : Style::kTextDim[2], 1.0f);
     }
 
-    // --- footer readout inside the rail
-    drawRect(left, height - 72.0f * s, railW - left - Style::kSpace4 * s, Style::kHairline,
-             Style::kBorderSubtle[0], Style::kBorderSubtle[1], Style::kBorderSubtle[2], 0.8f);
-    TextRender::drawMono(std::max(11, (int)(Style::kTypeMicro * s)), "SAUCE ENGINE",
-                         left, height - 56.0f * s,
-                         Style::kTextMuted[0], Style::kTextMuted[1], Style::kTextMuted[2], 0.8f);
-    TextRender::drawMono(std::max(11, (int)(Style::kTypeMicro * s)),
-                         pauseMode ? "PAUSED" : "READY",
-                         railW - Style::kSpace4 * s - TextRender::monoWidth(std::max(11, (int)(Style::kTypeMicro * s)), pauseMode ? "PAUSED" : "READY"),
-                         height - 56.0f * s,
-                         Style::kAccent[0], Style::kAccent[1], Style::kAccent[2], 0.95f);
+    // --- footer status block inside the rail
+    {
+        const int micro = std::max(10, (int)(Style::kTypeMicro * s));
+        drawRect(left, height - 108.0f * s, railW - left - Style::kSpace4 * s, Style::kHairline,
+                 Style::kBorderSubtle[0], Style::kBorderSubtle[1], Style::kBorderSubtle[2], 0.8f);
+        char res[48];
+        std::snprintf(res, sizeof(res), "%d x %d", width, height);
+        TextRender::drawMono(micro, res, left, height - 88.0f * s,
+                             Style::kTextMuted[0], Style::kTextMuted[1], Style::kTextMuted[2], 0.8f);
+        TextRender::drawMono(micro, "SAUCE ENGINE", left, height - 68.0f * s,
+                             Style::kTextMuted[0], Style::kTextMuted[1], Style::kTextMuted[2], 0.6f);
+        const char* state = pauseMode ? "PAUSED" : "READY";
+        const float sw = TextRender::monoWidth(micro, state);
+        drawRect(railW - Style::kSpace4 * s - sw - 14.0f * s, height - 68.0f * s + micro * 0.35f,
+                 6.0f * s, 6.0f * s,
+                 Style::kAccent[0], Style::kAccent[1], Style::kAccent[2], 1.0f);
+        TextRender::drawMono(micro, state, railW - Style::kSpace4 * s - sw, height - 68.0f * s,
+                             Style::kAccent[0], Style::kAccent[1], Style::kAccent[2], 0.95f);
+    }
 }
 
 void Menu_L::centerDialog(int width, int height) {
@@ -1163,9 +1180,9 @@ int Menu_L::hitMainControl(float mx, float my, int width, int height) const {
     const float s = std::max(0.65f, std::min(1.45f, std::min(width / 1920.0f, height / 1080.0f)));
     const size_t count = pauseMode ? 6u : 5u;
     const float left = Style::kSpace6 * s;
-    const float railW = 560.0f * s;
+    const float railW = 640.0f * s;
     const float rowH = Style::kRowHeight * s;
-    const float itemsTop = 300.0f * s;
+    const float itemsTop = 282.0f * s;
     for (size_t i = 0; i < count; ++i) {
         const float y = itemsTop + rowH * static_cast<float>(i);
         if (pointIn(mx, my, left - Style::kSpace3 * s, y,
