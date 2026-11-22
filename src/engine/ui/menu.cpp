@@ -10,6 +10,7 @@
 #include <GLFW/glfw3.h>
 #include <GL/gl.h>
 #include "text_render.h"
+#include "style.h"
 
 #include <algorithm>
 #include <cctype>
@@ -344,19 +345,19 @@ bool Menu_L::hovered(float x, float y, float w, float h) const {
 // Colors taken from the game's platform/resource/sourcescheme.res so the
 // dialogs match Source's VGUI look.
 namespace {
-// Modern Half-Life 2 look: charcoal panels with the orange accent color.
-constexpr float kControlBG[3]      = {32.0f / 255.0f, 34.0f / 255.0f, 37.0f / 255.0f};
-constexpr float kControlDarkBG[3]  = {44.0f / 255.0f, 47.0f / 255.0f, 52.0f / 255.0f};
-constexpr float kWindowBG[3]       = {18.0f / 255.0f, 19.0f / 255.0f, 21.0f / 255.0f};
-constexpr float kSelectionBG[3]    = {255.0f / 255.0f, 158.0f / 255.0f, 12.0f / 255.0f};
-constexpr float kBorderBright[3]   = {82.0f / 255.0f, 86.0f / 255.0f, 92.0f / 255.0f};
-constexpr float kBorderDark[3]     = {12.0f / 255.0f, 13.0f / 255.0f, 15.0f / 255.0f};
-constexpr float kControlText[3]    = {228.0f / 255.0f, 230.0f / 255.0f, 233.0f / 255.0f};
-constexpr float kBrightControl[3]  = {255.0f / 255.0f, 168.0f / 255.0f, 32.0f / 255.0f};
-constexpr float kDimBaseText[3]    = {150.0f / 255.0f, 154.0f / 255.0f, 160.0f / 255.0f};
-constexpr float kButtonBG[3]       = {38.0f / 255.0f, 41.0f / 255.0f, 45.0f / 255.0f};
-constexpr float kButtonHover[3]    = {56.0f / 255.0f, 60.0f / 255.0f, 65.0f / 255.0f};
-constexpr float kButtonPressed[3]  = {20.0f / 255.0f, 21.0f / 255.0f, 23.0f / 255.0f};
+// Aliases for the shared UI palette (see style.h).
+constexpr auto& kControlBG      = Style::kPanel;
+constexpr auto& kControlDarkBG  = Style::kPanelTitle;
+constexpr auto& kWindowBG       = Style::kField;
+constexpr auto& kSelectionBG    = Style::kAccent;
+constexpr auto& kBorderBright   = Style::kBorderBright;
+constexpr auto& kBorderDark     = Style::kBorderDark;
+constexpr auto& kControlText    = Style::kText;
+constexpr auto& kBrightControl  = Style::kTextHover;
+constexpr auto& kDimBaseText    = Style::kTextDim;
+constexpr auto& kButtonBG       = Style::kButton;
+constexpr auto& kButtonHover    = Style::kButtonHover;
+constexpr auto& kButtonPressed  = Style::kButtonPressed;
 }
 
 // Flat Source frame: solid ControlBG fill, bright top/left and dark bottom/right.
@@ -675,11 +676,11 @@ void Menu_L::renderDialog(int width, int height) {
 
 
     drawFrame(dialogX, dialogY, dialogW, dialogH, 0.0f, 0.0f);
-    drawRect(dialogX + 1.0f, dialogY + 1.0f, dialogW - 2.0f, 26.0f * s,
+    drawRect(dialogX + 1.0f, dialogY + 1.0f, dialogW - 2.0f, Style::kTitleBarHeight * s,
              kControlDarkBG[0], kControlDarkBG[1], kControlDarkBG[2], 1.0f);
-    drawRect(dialogX + 1.0f, dialogY + 27.0f * s, dialogW - 2.0f, 1.0f,
+    drawRect(dialogX + 1.0f, dialogY + (Style::kTitleBarHeight + 1.0f) * s, dialogW - 2.0f, 1.0f,
              kBorderDark[0], kBorderDark[1], kBorderDark[2], 1.0f);
-    drawRect(dialogX + 1.0f, dialogY + 1.0f, 3.0f * s, 26.0f * s,
+    drawRect(dialogX + 1.0f, dialogY + 1.0f, Style::kAccentBarWidth * s, Style::kTitleBarHeight * s,
              kSelectionBG[0], kSelectionBG[1], kSelectionBG[2], 1.0f);
 
     drawText(dialogTitle, dialogX + 12.0f * s, dialogY + 5.0f * s,
@@ -1627,13 +1628,13 @@ void Menu_L::renderConsoleOverlay(int width, int height) {
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
 
-    drawFrame(consoleX, consoleY, consoleW, consoleH, 0.295f, 0.235f);
-    drawRect(consoleX + 1.0f, consoleY + 1.0f, consoleW - 2.0f, 27.0f,
-             0.330f, 0.335f, 0.347f, 1.0f);
-    drawRect(consoleX + 1.0f, consoleY + 28.0f, consoleW - 2.0f, 1.0f,
-             0.085f, 0.090f, 0.105f, 1.0f);
-    drawRect(consoleX + 1.0f, consoleY + 1.0f, 3.0f, 27.0f,
-             1.0f, 0.62f, 0.05f, 0.85f);
+    drawFrame(consoleX, consoleY, consoleW, consoleH, 0.0f, 0.0f);
+    drawRect(consoleX + 1.0f, consoleY + 1.0f, consoleW - 2.0f, Style::kTitleBarHeight,
+             kControlDarkBG[0], kControlDarkBG[1], kControlDarkBG[2], 1.0f);
+    drawRect(consoleX + 1.0f, consoleY + Style::kTitleBarHeight + 1.0f, consoleW - 2.0f, 1.0f,
+             kBorderDark[0], kBorderDark[1], kBorderDark[2], 1.0f);
+    drawRect(consoleX + 1.0f, consoleY + 1.0f, Style::kAccentBarWidth, Style::kTitleBarHeight,
+             kSelectionBG[0], kSelectionBG[1], kSelectionBG[2], 1.0f);
     drawText("Console", consoleX + 12.0f, consoleY + 5.0f, fontSmall,
              0.94f, 0.94f, 0.95f, 0.98f);
     drawText("~", consoleX + consoleW - 24.0f, consoleY + 5.0f, fontSmall,

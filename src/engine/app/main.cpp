@@ -58,6 +58,7 @@
 #include "platform.h"
 #include "settings.h"
 #include "text_render.h"
+#include "style.h"
 
 static void ShowEngineError(const std::string& message) {
     Plat::ShowMessage("Engine Error", message);
@@ -71,6 +72,7 @@ static void DrawLoadingScreen(GLFWwindow* window, const std::string& mapName,
     if (!window) return;
     static double loadingStarted = 0.0;
     if (progress <= 0.031f || loadingStarted == 0.0) loadingStarted = glfwGetTime();
+
     const int w = std::max(1, windowWidth);
     const int h = std::max(1, windowHeight);
     const float clamped = std::clamp(progress, 0.0f, 1.0f);
@@ -96,87 +98,64 @@ static void DrawLoadingScreen(GLFWwindow* window, const std::string& mapName,
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glEnable(GL_TEXTURE_2D);
 
-    // --- background: dark gradient with a soft warm glow behind the title
+    // Unified charcoal background (same palette as the menus).
+    glClearColor(Style::kBackground[0], Style::kBackground[1], Style::kBackground[2], 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
     glDisable(GL_TEXTURE_2D);
+    glColor4f(Style::kBackground[0], Style::kBackground[1], Style::kBackground[2], 1.0f);
     glBegin(GL_QUADS);
-    // upper band
-    glColor4f(0.016f, 0.018f, 0.022f, 1.0f);
     glVertex2f(0, 0);
     glVertex2f((float)w, 0);
-    glColor4f(0.070f, 0.062f, 0.050f, 1.0f);
-    glVertex2f((float)w, h * 0.42f);
-    glVertex2f(0, h * 0.42f);
-    // middle band
-    glColor4f(0.070f, 0.062f, 0.050f, 1.0f);
-    glVertex2f(0, h * 0.42f);
-    glVertex2f((float)w, h * 0.42f);
-    glColor4f(0.030f, 0.030f, 0.034f, 1.0f);
-    glVertex2f((float)w, h * 0.62f);
-    glVertex2f(0, h * 0.62f);
-    // lower band
-    glColor4f(0.030f, 0.030f, 0.034f, 1.0f);
-    glVertex2f(0, h * 0.62f);
-    glVertex2f((float)w, h * 0.62f);
-    glColor4f(0.012f, 0.013f, 0.015f, 1.0f);
     glVertex2f((float)w, (float)h);
     glVertex2f(0, (float)h);
     glEnd();
 
-    // --- title: LOADING (uppercase, slightly letter spaced)
-    {
-        std::string title;
-        for (const char* c = "LOADING"; *c; ++c) {
-            title.push_back(*c);
-            title.push_back(' ');
-        }
-        if (!title.empty()) title.pop_back();
-        const int titleSize = std::max(30, h / 14);
-        const float titleWidth = TextRender::width(titleSize, title, false);
-        TextRender::draw(titleSize, title, (w - titleWidth) * 0.5f, h * 0.34f,
-                         0.96f, 0.96f, 0.965f, 1.0f, false);
+    // Title: L O A D I N G with the same orange rule as the main menu title.
+    std::string title = "LOADING";
+    std::string spaced;
+    for (char c : title) { spaced.push_back(c); spaced.push_back(' '); }
+    if (!spaced.empty()) spaced.pop_back();
 
-        // thin accent underline
-        glDisable(GL_TEXTURE_2D);
-        const float accentW = w * 0.10f;
-        const float accentY = h * 0.34f + titleSize * 1.35f;
-        glColor4f(1.0f, 0.60f, 0.05f, 0.9f);
-        glBegin(GL_QUADS);
-        glVertex2f((w - accentW) * 0.5f, accentY);
-        glVertex2f((w + accentW) * 0.5f, accentY);
-        glVertex2f((w + accentW) * 0.5f, accentY + 2.0f);
-        glVertex2f((w - accentW) * 0.5f, accentY + 2.0f);
-        glEnd();
+    const int titleSize = std::max(30, h / 15);
+    const float titleWidth = TextRender::width(titleSize, spaced, false);
+    TextRender::draw(titleSize, spaced, (w - titleWidth) * 0.5f, h * 0.34f,
+                     Style::kText[0], Style::kText[1], Style::kText[2], 1.0f, false);
+
+    const float ruleW = 128.0f * (h / 1080.0f + 0.35f);
+    const float ruleY = h * 0.34f + titleSize * 1.22f;
+    glColor4f(Style::kAccent[0], Style::kAccent[1], Style::kAccent[2], 1.0f);
+    glBegin(GL_QUADS);
+    glVertex2f((w - ruleW) * 0.5f, ruleY);
+    glVertex2f((w + ruleW) * 0.5f, ruleY);
+    glVertex2f((w + ruleW) * 0.5f, ruleY + std::max(2.0f, h / 540.0f));
+    glVertex2f((w - ruleW) * 0.5f, ruleY + std::max(2.0f, h / 540.0f));
+    glEnd();
+
+    // Map name.
+    if (!mapName.empty()) {
+        const int mapSize = std::max(13, h / 46);
+        const float mapWidth = TextRender::width(mapSize, mapName, false);
+        TextRender::draw(mapSize, mapName, (w - mapWidth) * 0.5f, ruleY + h * 0.030f,
+                         Style::kTextDim[0], Style::kTextDim[1], Style::kTextDim[2], 1.0f, false);
     }
 
-    // --- map name
-    const int mapSize = std::max(13, h / 46);
-    const std::string mapLine = mapName.empty() ? std::string() : mapName;
-    if (!mapLine.empty()) {
-        const float mapWidth = TextRender::width(mapSize, mapLine, false);
-        TextRender::draw(mapSize, mapLine, (w - mapWidth) * 0.5f,
-                         h * 0.34f + h / 14 * 1.35f + h * 0.030f,
-                         0.72f, 0.73f, 0.76f, 1.0f, false);
-    }
-
-    // --- progress bar
+    // Progress bar in the same flat style as buttons/fields.
     const float barW = w * 0.44f;
-    const float barH = std::max(9.0f, h / 110.0f);
+    const float barH = std::max(8.0f, h / 120.0f);
     const float barX = (w - barW) * 0.5f;
     const float barY = h * 0.665f;
 
     glDisable(GL_TEXTURE_2D);
-
-    // outer border
-    glColor4f(0.40f, 0.41f, 0.44f, 0.45f);
+    glColor4f(Style::kBorderBright[0], Style::kBorderBright[1], Style::kBorderBright[2], 0.9f);
     glBegin(GL_QUADS);
-    glVertex2f(barX - 2.0f, barY - 2.0f);
-    glVertex2f(barX + barW + 2.0f, barY - 2.0f);
-    glVertex2f(barX + barW + 2.0f, barY + barH + 2.0f);
-    glVertex2f(barX - 2.0f, barY + barH + 2.0f);
+    glVertex2f(barX - 1.0f, barY - 1.0f);
+    glVertex2f(barX + barW + 1.0f, barY - 1.0f);
+    glVertex2f(barX + barW + 1.0f, barY + barH + 1.0f);
+    glVertex2f(barX - 1.0f, barY + barH + 1.0f);
     glEnd();
 
-    // track
-    glColor4f(0.115f, 0.120f, 0.135f, 1.0f);
+    glColor4f(Style::kField[0], Style::kField[1], Style::kField[2], 1.0f);
     glBegin(GL_QUADS);
     glVertex2f(barX, barY);
     glVertex2f(barX + barW, barY);
@@ -184,25 +163,23 @@ static void DrawLoadingScreen(GLFWwindow* window, const std::string& mapName,
     glVertex2f(barX, barY + barH);
     glEnd();
 
-    // filled part with a vertical gradient + moving highlight
     if (clamped > 0.0f) {
         const float fillW = barW * clamped;
+        glColor4f(Style::kAccent[0], Style::kAccent[1], Style::kAccent[2], 1.0f);
         glBegin(GL_QUADS);
-        glColor4f(0.86f, 0.45f, 0.02f, 1.0f);
         glVertex2f(barX, barY);
         glVertex2f(barX + fillW, barY);
-        glColor4f(1.0f, 0.83f, 0.35f, 1.0f);
         glVertex2f(barX + fillW, barY + barH);
         glVertex2f(barX, barY + barH);
         glEnd();
 
-        const float phase = static_cast<float>(std::fmod(now * 0.8, 1.0));
-        const float shimmerW = std::max(30.0f, barW * 0.09f);
+        const float phase = static_cast<float>(std::fmod(now * 0.9, 1.0));
+        const float shimmerW = std::max(28.0f, barW * 0.08f);
         const float shimmerX = barX + (fillW + shimmerW) * phase - shimmerW;
         const float shimmerMin = std::max(barX, shimmerX);
         const float shimmerMax = std::min(barX + fillW, shimmerX + shimmerW);
         if (shimmerMax > shimmerMin) {
-            glColor4f(1.0f, 0.97f, 0.82f, 0.30f);
+            glColor4f(1.0f, 0.93f, 0.75f, 0.22f);
             glBegin(GL_QUADS);
             glVertex2f(shimmerMin, barY);
             glVertex2f(shimmerMax, barY);
@@ -210,27 +187,27 @@ static void DrawLoadingScreen(GLFWwindow* window, const std::string& mapName,
             glVertex2f(shimmerMin, barY + barH);
             glEnd();
         }
-
-        // soft glow under the filled part
-        glColor4f(1.0f, 0.60f, 0.10f, 0.10f);
-        glBegin(GL_QUADS);
-        glVertex2f(barX, barY + barH);
-        glVertex2f(barX + fillW, barY + barH);
-        glVertex2f(barX + fillW, barY + barH + 6.0f);
-        glVertex2f(barX, barY + barH + 6.0f);
-        glEnd();
     }
 
-    // --- status text (left) and percentage (right) under the bar
     const int statusSize = std::max(11, h / 62);
     TextRender::draw(statusSize, detail, barX, barY + barH + h * 0.024f,
-                     0.66f, 0.68f, 0.72f, 1.0f, false);
+                     Style::kTextDim[0], Style::kTextDim[1], Style::kTextDim[2], 1.0f, false);
 
     char percent[16];
     std::snprintf(percent, sizeof(percent), "%d%%", static_cast<int>(clamped * 100.0f + 0.5f));
     const float percentWidth = TextRender::width(statusSize, percent, false);
     TextRender::draw(statusSize, percent, barX + barW - percentWidth,
-                     barY + barH + h * 0.024f, 0.78f, 0.79f, 0.82f, 1.0f, false);
+                     barY + barH + h * 0.024f,
+                     Style::kText[0], Style::kText[1], Style::kText[2], 0.9f, false);
+
+    // Footer.
+    {
+        const int footerSize = std::max(10, h / 78);
+        const char* footer = "SAUCE ENGINE";
+        const float footerWidth = TextRender::width(footerSize, footer, false);
+        TextRender::draw(footerSize, footer, (w - footerWidth) * 0.5f, h - h * 0.06f,
+                         Style::kTextDim[0], Style::kTextDim[1], Style::kTextDim[2], 0.6f, false);
+    }
 
     glMatrixMode(GL_MODELVIEW);
     glPopMatrix();
