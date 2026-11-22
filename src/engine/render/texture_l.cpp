@@ -24,6 +24,11 @@
 typedef void (*PFNGLCOMPRESSEDTEXIMAGE2DPROC)(GLenum, GLint, GLenum, GLsizei, GLsizei, GLint, GLsizei, const void*);
 static PFNGLCOMPRESSEDTEXIMAGE2DPROC glCompressedTexImage2D_Ext = nullptr;
 
+static bool debugTextures() {
+    static const bool enabled = std::getenv("SAUCE_DEBUG_TEXTURES") != nullptr;
+    return enabled;
+}
+
 #pragma pack(push, 1)
 struct VTFResource { char tag[3]; unsigned char flags; unsigned int offset; };
 struct VTFHeader {
@@ -758,6 +763,11 @@ unsigned int Texture_L::loadVTF(const std::string& path) {
         return 0;
     }
 
+    if (debugTextures()) {
+        std::fprintf(stderr, "[VTF] %s %ux%u fmt=%u mips=%u frames=%d dataOffset=%u size=%zu\n",
+                     path.c_str(), h->width, h->height, h->highResFormat, h->mipCount,
+                     numFrames, mipOffsets[0], buffer.size());
+    }
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
     for (int mip = 0; mip < h->mipCount; ++mip) {
         const int mipW = std::max(1, static_cast<int>(h->width) >> mip);

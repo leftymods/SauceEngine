@@ -391,6 +391,10 @@ void PostProcess_L::shutdown() {
 }
 
 bool PostProcess_L::beginScene(int width, int height) {
+    if (!m_userEnabled) {
+        m_active = false;
+        return false;
+    }
     if (!m_ready || !m || width < 2 || height < 2) {
         m_active = false;
         return false;

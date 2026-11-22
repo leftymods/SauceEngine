@@ -11,6 +11,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -478,6 +479,18 @@ void Menu_L::loadChapters() {
     }
 
     std::sort(chapters.begin(), chapters.end(), [](const MenuChapter& a, const MenuChapter& b) { return a.number < b.number; });
+
+    // SauceEngine ships its own small test level (maps/sauce_test.bsp). Offer it
+    // in the New Game list so the renderer/physics can be checked without any
+    // other content.
+    {
+        MenuChapter testMap;
+        testMap.number = 0;
+        testMap.name = "Sauce Test Map";
+        testMap.mapName = "sauce_test";
+        testMap.image = "materials/gamepadui/chapter1";
+        chapters.insert(chapters.begin(), testMap);
+    }
     chapterTextures.assign(chapters.size(), TextureRef{});
     if (!chapters.empty()) {
         selectedChapter = std::min(selectedChapter, chapters.size() - 1);
@@ -535,6 +548,18 @@ unsigned int Menu_L::resolveChapterTexture(size_t index) {
     const std::string map = lowerText(c.mapName);
 
 
+    // The Half-Life 2 anniversary update ships full-size chapter art in
+    // materials/gamepadui. The older vgui/chapters textures are padded
+    // power-of-two canvases (the real artwork only covers the top-left
+    // corner), so prefer the full-size variants when they exist.
+    for (const std::string& base : {
+        std::string("materials/gamepadui/chapter"),
+        std::string("materials/vgui/chapters/chapter")
+    }) {
+        addUnique(candidates, seen, base + n);
+        addUnique(candidates, seen, base + std::string(n2));
+    }
+
     for (const std::string& dir : {
         "materials/vgui/chapters/",
         "materials/vgui/hl2/chapters/",
@@ -573,6 +598,10 @@ unsigned int Menu_L::resolveChapterTexture(size_t index) {
         tex = loadTextureCandidates(scanned);
     }
 
+    static const bool debugTextures = std::getenv("SAUCE_DEBUG_TEXTURES") != nullptr;
+    if (debugTextures) {
+        std::fprintf(stderr, "[Chapter] %zu '%s' id=%u %dx%d\n", index, c.mapName.c_str(), tex.id, tex.width, tex.height);
+    }
     if (!tex.id) {
         chapterTextures[index] = whiteTexture;
         chapterTextures[index].owned = false;

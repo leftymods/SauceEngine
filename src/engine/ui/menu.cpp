@@ -3,6 +3,7 @@
 #include "menu_kv.h"
 #include "multiplayer.h"
 #include "texture_l.h"
+#include "sound_l.h"
 #include "demo_player.h"
 #include <GLFW/glfw3.h>
 #include <GL/gl.h>
@@ -62,6 +63,12 @@ static std::string withoutMaterials(std::string s) {
     s = lowerText(s);
     if (s.rfind("materials/", 0) == 0) s.erase(0, 10);
     return s;
+}
+
+static void menuPlaySound(const char* path) {
+    // Menu feedback sounds come from the game's sound scripts/paks; the audio
+    // system ignores requests silently when it is not initialised yet.
+    Sound_L::Get().play(path, Vec3{0, 0, 0}, 0.7f, false, false);
 }
 
 static bool hasExtension(const std::string& s, const char* ext) {
@@ -807,6 +814,7 @@ void Menu_L::selectCurrentChapter() {
 
 void Menu_L::activateMainControl(int control, int width, int height, MenuResult& result) {
     if (control < 0) return;
+    menuPlaySound("ui/buttonclick.wav");
     if (!pauseMode) {
         switch (control) {
             case 0: openChapterSelector(width, height); break;
@@ -831,6 +839,7 @@ void Menu_L::activateMainControl(int control, int width, int height, MenuResult&
 
 void Menu_L::activateDialogControl(int control, int width, int height, MenuResult& result) {
     (void)width; (void)height;
+    menuPlaySound("ui/buttonclick.wav");
     if (control == 900) { closeDialog(); return; }
     if (dialog == DialogKind::Empty && control == 901) { closeDialog(); return; }
     if (dialog == DialogKind::Host) {

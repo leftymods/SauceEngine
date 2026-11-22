@@ -41,9 +41,11 @@ struct AtlasFont {
     Glyph glyphs[kCharCount];
 };
 
-std::vector<unsigned char> gFontFile;
-bool gFontFileLoaded = false;
+std::vector<unsigned char> gPrimaryFile;
+std::vector<unsigned char> gFallbackFile;
+bool gFontsLoaded = false;
 std::map<int, std::unique_ptr<AtlasFont>> gFontCache;
+std::vector<std::string> gGameFontPaths;
 
 const char* const kFontCandidates[] = {
     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
@@ -61,17 +63,45 @@ const char* const kFontCandidates[] = {
     "C:/Windows/Fonts/arial.ttf",
 };
 
-bool loadFontFile() {
-    if (gFontFileLoaded) return !gFontFile.empty();
-    gFontFileLoaded = true;
-    for (const char* path : kFontCandidates) {
-        std::ifstream in(path, std::ios::binary);
-        if (!in) continue;
-        gFontFile.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
-        if (!gFontFile.empty()) return true;
+bool readFontFile(const std::string& path, std::vector<unsigned char>& out) {
+    std::ifstream in(path, std::ios::binary);
+    if (!in) return false;
+    out.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+    return !out.empty();
+}
+
+bool loadFonts() {
+    if (gFontsLoaded) return !gPrimaryFile.empty();
+    gFontsLoaded = true;
+
+    for (const std::string& path : gGameFontPaths) {
+        if (readFontFile(path, gPrimaryFile)) {
+            std::fprintf(stderr, "[TextRender] Using game font: %s\n", path.c_str());
+            break;
+        }
     }
-    std::fprintf(stderr, "[TextRender] No usable TrueType font found, text will not be drawn.\n");
-    return false;
+    if (gPrimaryFile.empty()) {
+        for (const char* path : kFontCandidates) {
+            if (readFontFile(path, gPrimaryFile)) {
+                std::fprintf(stderr, "[TextRender] Using system font: %s\n", path);
+                break;
+            }
+        }
+    }
+    if (gPrimaryFile.empty()) {
+        std::fprintf(stderr, "[TextRender] No usable TrueType font found, text will not be drawn.\n");
+        return false;
+    }
+
+    // The Half-Life 2 UI font only contains uppercase glyphs; use a regular
+    // system font as a fallback for lowercase letters and punctuation.
+    for (const char* path : kFontCandidates) {
+        if (readFontFile(path, gFallbackFile)) break;
+    }
+    if (!gFallbackFile.empty()) {
+        std::fprintf(stderr, "[TextRender] Glyph fallback font loaded.\n");
+    }
+    return true;
 }
 
 int decodeUtf8(const std::string& text, size_t& index) {
@@ -102,44 +132,95 @@ int mapCodepoint(int code) {
     return code;
 }
 
-AtlasFont* getFont(int pixelHeight) {
+AtlasFont* getFont(int pixelHeight, bool useGameFont) {
     if (pixelHeight < 1) pixelHeight = 1;
-    auto existing = gFontCache.find(pixelHeight);
+    const int cacheKey = pixelHeight * 2 + (useGameFont ? 1 : 0);
+    auto existing = gFontCache.find(cacheKey);
     if (existing != gFontCache.end()) return existing->second.get();
-    if (!loadFontFile()) return nullptr;
+    if (!loadFonts()) return nullptr;
 
-    stbtt_fontinfo info{};
-    const int offset = stbtt_GetFontOffsetForIndex(gFontFile.data(), 0);
-    if (offset < 0 || !stbtt_InitFont(&info, gFontFile.data(), offset)) return nullptr;
+    stbtt_fontinfo primary{};
+    const int primaryOffset = stbtt_GetFontOffsetForIndex(gPrimaryFile.data(), 0);
+    if (primaryOffset < 0 || !stbtt_InitFont(&primary, gPrimaryFile.data(), primaryOffset)) return nullptr;
 
-    const float scale = stbtt_ScaleForPixelHeight(&info, static_cast<float>(pixelHeight));
+    stbtt_fontinfo fallback{};
+    bool hasFallback = false;
+    if (!gFallbackFile.empty()) {
+        const int fallbackOffset = stbtt_GetFontOffsetForIndex(gFallbackFile.data(), 0);
+        hasFallback = fallbackOffset >= 0 && stbtt_InitFont(&fallback, gFallbackFile.data(), fallbackOffset);
+    }
+
+    const float primaryScale = stbtt_ScaleForPixelHeight(&primary, static_cast<float>(pixelHeight));
+    const float fallbackScale = hasFallback
+        ? stbtt_ScaleForPixelHeight(&fallback, static_cast<float>(pixelHeight))
+        : primaryScale;
+
+    // The Half-Life 2 UI font is a decorative uppercase-only face. It looks
+    // right for the big title, but menus/HUD need a regular face, so small
+    // text is rendered with the fallback font instead.
+    const bool gameFont = useGameFont && (hasFallback ? pixelHeight >= 32 : true);
+
+    auto glyphBox = [](stbtt_fontinfo& info, float scale, int glyphIndex,
+                       int& x0, int& y0, int& x1, int& y1) -> bool {
+        if (glyphIndex == 0) return false;
+        stbtt_GetGlyphBitmapBox(&info, glyphIndex, scale, scale, &x0, &y0, &x1, &y1);
+        return x1 > x0 && y1 > y0;
+    };
+
     int rawAscent = 0, rawDescent = 0, rawLineGap = 0;
-    stbtt_GetFontVMetrics(&info, &rawAscent, &rawDescent, &rawLineGap);
+    stbtt_fontinfo& baseInfo = (gameFont || !hasFallback) ? primary : fallback;
+    const float baseScale = (gameFont || !hasFallback) ? primaryScale : fallbackScale;
+    stbtt_GetFontVMetrics(&baseInfo, &rawAscent, &rawDescent, &rawLineGap);
 
     auto font = std::make_unique<AtlasFont>();
     font->pixelHeight = pixelHeight;
-    font->ascent = std::ceil(static_cast<float>(rawAscent) * scale);
-    font->descent = std::ceil(static_cast<float>(-rawDescent) * scale);
+    font->ascent = std::ceil(static_cast<float>(rawAscent) * baseScale);
+    font->descent = std::ceil(static_cast<float>(-rawDescent) * baseScale);
 
     struct Pending {
         int x = 0, y = 0, w = 0, h = 0, xoff = 0, yoff = 0;
+        bool useFallback = false;
     };
     Pending pending[kCharCount];
 
     int cursorX = 1, cursorY = 1, rowHeight = 0;
     for (int i = 0; i < kCharCount; ++i) {
         const int code = kFirstChar + i;
-        const int glyphIndex = stbtt_FindGlyphIndex(&info, code);
-        int advance = 0, lsb = 0;
-        stbtt_GetGlyphHMetrics(&info, glyphIndex, &advance, &lsb);
-        font->glyphs[i].advance = static_cast<float>(advance) * scale;
 
-        if (glyphIndex == 0 && code != '?') continue; // missing glyph
+        stbtt_fontinfo* chosen = nullptr;
+        float chosenScale = primaryScale;
+        int glyphIndex = 0;
         int ix0 = 0, iy0 = 0, ix1 = 0, iy1 = 0;
-        stbtt_GetGlyphBitmapBox(&info, glyphIndex, scale, scale, &ix0, &iy0, &ix1, &iy1);
+
+        auto tryFont = [&](stbtt_fontinfo& info, float scale) -> bool {
+            const int gi = stbtt_FindGlyphIndex(&info, code);
+            int x0 = 0, y0 = 0, x1 = 0, y1 = 0;
+            if (!glyphBox(info, scale, gi, x0, y0, x1, y1)) return false;
+            chosen = &info;
+            chosenScale = scale;
+            glyphIndex = gi;
+            ix0 = x0; iy0 = y0; ix1 = x1; iy1 = y1;
+            return true;
+        };
+
+        bool found = gameFont
+            ? (tryFont(primary, primaryScale) || (hasFallback && tryFont(fallback, fallbackScale)))
+            : ((hasFallback && tryFont(fallback, fallbackScale)) || tryFont(primary, primaryScale));
+
+        if (!found) {
+            // Unknown even for the fallback font: give the code point a space
+            // worth of advance so the rest of the string stays aligned.
+            font->glyphs[i].advance = static_cast<float>(pixelHeight) * 0.35f;
+            continue;
+        }
+
+        int advance = 0, lsb = 0;
+        stbtt_GetGlyphHMetrics(chosen, glyphIndex, &advance, &lsb);
+        font->glyphs[i].advance = static_cast<float>(advance) * chosenScale;
+        if (code == ' ') continue;
+
         const int w = ix1 - ix0;
         const int h = iy1 - iy0;
-        if (w <= 0 || h <= 0) continue;
         if (cursorX + w + 2 > kAtlasWidth) {
             cursorX = 1;
             cursorY += rowHeight + 1;
@@ -152,6 +233,7 @@ AtlasFont* getFont(int pixelHeight) {
         p.h = h;
         p.xoff = ix0;
         p.yoff = iy0;
+        p.useFallback = (chosen == &fallback);
         cursorX += w + 1;
         rowHeight = std::max(rowHeight, h);
     }
@@ -163,6 +245,8 @@ AtlasFont* getFont(int pixelHeight) {
     for (int i = 0; i < kCharCount; ++i) {
         Pending& p = pending[i];
         if (p.w <= 0 || p.h <= 0) continue;
+        stbtt_fontinfo& info = p.useFallback ? fallback : primary;
+        const float scale = p.useFallback ? fallbackScale : primaryScale;
         std::vector<unsigned char> bitmap(static_cast<size_t>(p.w) * p.h);
         const int glyphIndex = stbtt_FindGlyphIndex(&info, kFirstChar + i);
         stbtt_MakeGlyphBitmap(&info, bitmap.data(), p.w, p.h, p.w, scale, scale, glyphIndex);
@@ -204,7 +288,7 @@ AtlasFont* getFont(int pixelHeight) {
     glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(previousTexture));
 
     AtlasFont* result = font.get();
-    gFontCache[pixelHeight] = std::move(font);
+    gFontCache[cacheKey] = std::move(font);
     return result;
 }
 
@@ -212,10 +296,27 @@ AtlasFont* getFont(int pixelHeight) {
 
 namespace TextRender {
 
+void setGameDirectory(const std::string& gameDir) {
+    gGameFontPaths.clear();
+    if (gameDir.empty()) return;
+    std::string base = gameDir;
+    if (!base.empty() && base.back() != '/' && base.back() != '\\') base += '/';
+    gGameFontPaths.push_back(base + "resource/halflife2.ttf");
+    gGameFontPaths.push_back(base + "resource/dejavusans.ttf");
+    // Fonts may change, drop the atlases built from a previously used font.
+    for (auto& entry : gFontCache) {
+        if (entry.second && entry.second->texture) glDeleteTextures(1, &entry.second->texture);
+    }
+    gFontCache.clear();
+    gPrimaryFile.clear();
+    gFallbackFile.clear();
+    gFontsLoaded = false;
+}
+
 void draw(int pixelHeight, const std::string& text, float x, float topY,
-          float r, float g, float b, float a) {
+          float r, float g, float b, float a, bool useGameFont) {
     if (text.empty()) return;
-    AtlasFont* font = getFont(pixelHeight);
+    AtlasFont* font = getFont(pixelHeight, useGameFont);
     if (!font || !font->texture) return;
 
     const float baseline = topY + font->ascent;
@@ -249,9 +350,9 @@ void draw(int pixelHeight, const std::string& text, float x, float topY,
     glEnd();
 }
 
-float width(int pixelHeight, const std::string& text) {
+float width(int pixelHeight, const std::string& text, bool useGameFont) {
     if (text.empty()) return 0.0f;
-    AtlasFont* font = getFont(pixelHeight);
+    AtlasFont* font = getFont(pixelHeight, useGameFont);
     if (!font) return 0.0f;
     float pen = 0.0f;
     size_t index = 0;
@@ -269,8 +370,9 @@ void shutdown() {
         if (entry.second && entry.second->texture) glDeleteTextures(1, &entry.second->texture);
     }
     gFontCache.clear();
-    gFontFile.clear();
-    gFontFileLoaded = false;
+    gPrimaryFile.clear();
+    gFallbackFile.clear();
+    gFontsLoaded = false;
 }
 
 } // namespace TextRender

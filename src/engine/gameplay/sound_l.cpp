@@ -674,10 +674,16 @@ void Sound_L::audioLoop() {
         if (audioSink) {
 #if defined(SAUCE_HAVE_PULSE)
             int error = 0;
-            pa_simple_write(static_cast<pa_simple*>(audioSink),
-                            outputBuffers[currentBuffer].data(),
-                            outputBuffers[currentBuffer].size() * sizeof(int16_t),
-                            &error);
+            if (pa_simple_write(static_cast<pa_simple*>(audioSink),
+                                outputBuffers[currentBuffer].data(),
+                                outputBuffers[currentBuffer].size() * sizeof(int16_t),
+                                &error) < 0) {
+                static bool reported = false;
+                if (!reported) {
+                    reported = true;
+                    std::cerr << "Error: audio write failed (" << pa_strerror(error) << ")." << std::endl;
+                }
+            }
 #endif
         } else {
             // No audio device: keep roughly real time so gameplay timing is unaffected.

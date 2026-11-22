@@ -7,6 +7,9 @@ public:
     bool init();
     void shutdown();
 
+    // Allows disabling the HDR/bloom passes (e.g. on software renderers).
+    void setEnabled(bool enabled) { m_userEnabled = enabled; }
+
 
     bool beginScene(int width, int height);
 
@@ -23,4 +26,5 @@ private:
 
     bool m_ready = false;
     bool m_active = false;
+    bool m_userEnabled = true;
 };

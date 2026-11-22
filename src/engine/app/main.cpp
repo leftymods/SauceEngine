@@ -21,6 +21,7 @@
 #include <chrono>
 #include <exception>
 #include <cstdio>
+#include <cstdlib>
 #include <cmath>
 #include <cctype>
 #include <functional>
@@ -55,9 +56,186 @@
 #include "demo_player.h"
 #include "fs_compat.h"
 #include "platform.h"
+#include "text_render.h"
 
 static void ShowEngineError(const std::string& message) {
     Plat::ShowMessage("Engine Error", message);
+}
+
+extern int windowWidth;
+extern int windowHeight;
+
+static void DrawLoadingScreen(GLFWwindow* window, const std::string& mapName,
+                              const std::string& detail, float progress) {
+    if (!window) return;
+    const int w = std::max(1, windowWidth);
+    const int h = std::max(1, windowHeight);
+    const float clamped = std::clamp(progress, 0.0f, 1.0f);
+    const double now = glfwGetTime();
+
+    glfwMakeContextCurrent(window);
+    glPushAttrib(GL_ALL_ATTRIB_BITS);
+    glViewport(0, 0, w, h);
+    glMatrixMode(GL_PROJECTION);
+    glPushMatrix();
+    glLoadIdentity();
+    glOrtho(0, w, h, 0, -1, 1);
+    glMatrixMode(GL_MODELVIEW);
+    glPushMatrix();
+    glLoadIdentity();
+
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_LIGHTING);
+    glDisable(GL_CULL_FACE);
+    glDisable(GL_FOG);
+    glDisable(GL_ALPHA_TEST);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glEnable(GL_TEXTURE_2D);
+
+    // --- background: dark gradient with a soft warm glow behind the title
+    glDisable(GL_TEXTURE_2D);
+    glBegin(GL_QUADS);
+    // upper band
+    glColor4f(0.016f, 0.018f, 0.022f, 1.0f);
+    glVertex2f(0, 0);
+    glVertex2f((float)w, 0);
+    glColor4f(0.070f, 0.062f, 0.050f, 1.0f);
+    glVertex2f((float)w, h * 0.42f);
+    glVertex2f(0, h * 0.42f);
+    // middle band
+    glColor4f(0.070f, 0.062f, 0.050f, 1.0f);
+    glVertex2f(0, h * 0.42f);
+    glVertex2f((float)w, h * 0.42f);
+    glColor4f(0.030f, 0.030f, 0.034f, 1.0f);
+    glVertex2f((float)w, h * 0.62f);
+    glVertex2f(0, h * 0.62f);
+    // lower band
+    glColor4f(0.030f, 0.030f, 0.034f, 1.0f);
+    glVertex2f(0, h * 0.62f);
+    glVertex2f((float)w, h * 0.62f);
+    glColor4f(0.012f, 0.013f, 0.015f, 1.0f);
+    glVertex2f((float)w, (float)h);
+    glVertex2f(0, (float)h);
+    glEnd();
+
+    // --- title: LOADING (uppercase, slightly letter spaced)
+    {
+        std::string title;
+        for (const char* c = "LOADING"; *c; ++c) {
+            title.push_back(*c);
+            title.push_back(' ');
+        }
+        if (!title.empty()) title.pop_back();
+        const int titleSize = std::max(30, h / 14);
+        const float titleWidth = TextRender::width(titleSize, title, false);
+        TextRender::draw(titleSize, title, (w - titleWidth) * 0.5f, h * 0.34f,
+                         0.96f, 0.96f, 0.965f, 1.0f, false);
+
+        // thin accent underline
+        glDisable(GL_TEXTURE_2D);
+        const float accentW = w * 0.10f;
+        const float accentY = h * 0.34f + titleSize * 1.35f;
+        glColor4f(1.0f, 0.60f, 0.05f, 0.9f);
+        glBegin(GL_QUADS);
+        glVertex2f((w - accentW) * 0.5f, accentY);
+        glVertex2f((w + accentW) * 0.5f, accentY);
+        glVertex2f((w + accentW) * 0.5f, accentY + 2.0f);
+        glVertex2f((w - accentW) * 0.5f, accentY + 2.0f);
+        glEnd();
+    }
+
+    // --- map name
+    const int mapSize = std::max(13, h / 46);
+    const std::string mapLine = mapName.empty() ? std::string() : mapName;
+    if (!mapLine.empty()) {
+        const float mapWidth = TextRender::width(mapSize, mapLine, false);
+        TextRender::draw(mapSize, mapLine, (w - mapWidth) * 0.5f,
+                         h * 0.34f + h / 14 * 1.35f + h * 0.030f,
+                         0.72f, 0.73f, 0.76f, 1.0f, false);
+    }
+
+    // --- progress bar
+    const float barW = w * 0.44f;
+    const float barH = std::max(9.0f, h / 110.0f);
+    const float barX = (w - barW) * 0.5f;
+    const float barY = h * 0.665f;
+
+    glDisable(GL_TEXTURE_2D);
+
+    // outer border
+    glColor4f(0.40f, 0.41f, 0.44f, 0.45f);
+    glBegin(GL_QUADS);
+    glVertex2f(barX - 2.0f, barY - 2.0f);
+    glVertex2f(barX + barW + 2.0f, barY - 2.0f);
+    glVertex2f(barX + barW + 2.0f, barY + barH + 2.0f);
+    glVertex2f(barX - 2.0f, barY + barH + 2.0f);
+    glEnd();
+
+    // track
+    glColor4f(0.115f, 0.120f, 0.135f, 1.0f);
+    glBegin(GL_QUADS);
+    glVertex2f(barX, barY);
+    glVertex2f(barX + barW, barY);
+    glVertex2f(barX + barW, barY + barH);
+    glVertex2f(barX, barY + barH);
+    glEnd();
+
+    // filled part with a vertical gradient + moving highlight
+    if (clamped > 0.0f) {
+        const float fillW = barW * clamped;
+        glBegin(GL_QUADS);
+        glColor4f(0.86f, 0.45f, 0.02f, 1.0f);
+        glVertex2f(barX, barY);
+        glVertex2f(barX + fillW, barY);
+        glColor4f(1.0f, 0.83f, 0.35f, 1.0f);
+        glVertex2f(barX + fillW, barY + barH);
+        glVertex2f(barX, barY + barH);
+        glEnd();
+
+        const float phase = static_cast<float>(std::fmod(now * 0.8, 1.0));
+        const float shimmerW = std::max(30.0f, barW * 0.09f);
+        const float shimmerX = barX + (fillW + shimmerW) * phase - shimmerW;
+        const float shimmerMin = std::max(barX, shimmerX);
+        const float shimmerMax = std::min(barX + fillW, shimmerX + shimmerW);
+        if (shimmerMax > shimmerMin) {
+            glColor4f(1.0f, 0.97f, 0.82f, 0.30f);
+            glBegin(GL_QUADS);
+            glVertex2f(shimmerMin, barY);
+            glVertex2f(shimmerMax, barY);
+            glVertex2f(shimmerMax, barY + barH);
+            glVertex2f(shimmerMin, barY + barH);
+            glEnd();
+        }
+
+        // soft glow under the filled part
+        glColor4f(1.0f, 0.60f, 0.10f, 0.10f);
+        glBegin(GL_QUADS);
+        glVertex2f(barX, barY + barH);
+        glVertex2f(barX + fillW, barY + barH);
+        glVertex2f(barX + fillW, barY + barH + 6.0f);
+        glVertex2f(barX, barY + barH + 6.0f);
+        glEnd();
+    }
+
+    // --- status text (left) and percentage (right) under the bar
+    const int statusSize = std::max(11, h / 62);
+    TextRender::draw(statusSize, detail, barX, barY + barH + h * 0.024f,
+                     0.66f, 0.68f, 0.72f, 1.0f, false);
+
+    char percent[16];
+    std::snprintf(percent, sizeof(percent), "%d%%", static_cast<int>(clamped * 100.0f + 0.5f));
+    const float percentWidth = TextRender::width(statusSize, percent, false);
+    TextRender::draw(statusSize, percent, barX + barW - percentWidth,
+                     barY + barH + h * 0.024f, 0.78f, 0.79f, 0.82f, 1.0f, false);
+
+    glMatrixMode(GL_MODELVIEW);
+    glPopMatrix();
+    glMatrixMode(GL_PROJECTION);
+    glPopMatrix();
+    glPopAttrib();
+    glfwSwapBuffers(window);
+    glfwPollEvents();
 }
 
 static std::filesystem::path executableDirectory() {
@@ -152,11 +330,9 @@ bool gamePathProvided = false;
 std::string gameTitle = "Sauce name";
 bool disableTextures = false;
 bool disableLighting = false;
-int windowWidth = 800;
-int windowHeight = 600;
-unsigned int logoTexture = 0;
-int logoWidth = 0, logoHeight = 0;
-bool logoLoaded = false;
+bool postProcessDisabled = false;
+int windowWidth = 1920;
+int windowHeight = 1080;
 
 void framebufferSizeCallback(GLFWwindow* window, int width, int height) {
     if (width > 0 && height > 0) {
@@ -164,50 +340,6 @@ void framebufferSizeCallback(GLFWwindow* window, int width, int height) {
         windowHeight = height;
         glViewport(0, 0, width, height);
     }
-}
-
-void DrawLogoOverlay(int w, int h) {
-    if (!logoLoaded || logoTexture == 0) return;
-
-    glPushAttrib(GL_ALL_ATTRIB_BITS);
-    glMatrixMode(GL_PROJECTION);
-    glPushMatrix();
-    glLoadIdentity();
-    glOrtho(0, w, 0, h, -1, 1);
-    glMatrixMode(GL_MODELVIEW);
-    glPushMatrix();
-    glLoadIdentity();
-
-    glDisable(GL_LIGHTING);
-    glDisable(GL_DEPTH_TEST);
-    glDisable(GL_FOG);
-    glEnable(GL_TEXTURE_2D);
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
-    glBindTexture(GL_TEXTURE_2D, logoTexture);
-
-    float maxDim = static_cast<float>(std::min(w, h));
-    float size = maxDim * 0.15f;
-    if (size > 200.0f) size = 200.0f;
-    float aspect = (logoHeight > 0) ? static_cast<float>(logoWidth) / static_cast<float>(logoHeight) : 1.0f;
-    float drawW = size * aspect;
-    float drawH = size;
-    if (aspect > 1.0f) { drawW = size; drawH = size / aspect; }
-
-    float cx = w / 2.0f;
-    float cy = h / 2.0f;
-    glBegin(GL_QUADS);
-    glTexCoord2f(0, 1); glVertex2f(cx - drawW / 2, cy - drawH / 2);
-    glTexCoord2f(1, 1); glVertex2f(cx + drawW / 2, cy - drawH / 2);
-    glTexCoord2f(1, 0); glVertex2f(cx + drawW / 2, cy + drawH / 2);
-    glTexCoord2f(0, 0); glVertex2f(cx - drawW / 2, cy + drawH / 2);
-    glEnd();
-
-    glPopMatrix();
-    glMatrixMode(GL_PROJECTION);
-    glPopMatrix();
-    glPopAttrib();
 }
 
 void DrawSkybox(const Vec3& camPos, unsigned int tex[6]) {
@@ -803,6 +935,13 @@ int main(int argc, char* argv[]) {
         const std::string& arg = commandArgs[i];
         if (arg == "-game" && i + 1 < commandArgs.size()) { gameDir = commandArgs[++i]; gamePathProvided = true; }
         else if (arg == "-map" && i + 1 < commandArgs.size()) selectedMap = commandArgs[++i];
+        else if ((arg == "-width" || arg == "-w") && i + 1 < commandArgs.size()) {
+            try { windowWidth = std::max(320, std::stoi(commandArgs[++i])); } catch (...) {}
+        }
+        else if ((arg == "-height" || arg == "-h") && i + 1 < commandArgs.size()) {
+            try { windowHeight = std::max(240, std::stoi(commandArgs[++i])); } catch (...) {}
+        }
+        else if (arg == "-nopost") postProcessDisabled = true;
         else if (arg == "-notexture") disableTextures = true;
         else if (arg == "-nolight") disableLighting = true;
     }
@@ -818,6 +957,7 @@ int main(int argc, char* argv[]) {
             ShowEngineError("The selected game folder is missing gameinfo.txt. Use -game with the exact HL2\\hl2 folder.");
             return 1;
         }
+        TextRender::setGameDirectory(gameDir);
     }
 
     if (!glfwInit()) {
@@ -841,6 +981,20 @@ int main(int argc, char* argv[]) {
     }
 
     glfwMakeContextCurrent(window);
+    glfwFocusWindow(window);
+    {
+        const char* rendererName = reinterpret_cast<const char*>(glGetString(GL_RENDERER));
+        const std::string renderer = rendererName ? rendererName : "";
+        const bool softwareRenderer = renderer.find("llvmpipe") != std::string::npos ||
+                                      renderer.find("softpipe") != std::string::npos ||
+                                      renderer.find("swrast") != std::string::npos;
+        std::cout << "[GL] Renderer: " << (renderer.empty() ? "unknown" : renderer) << std::endl;
+        if (softwareRenderer && !postProcessDisabled) {
+            std::cout << "[GL] Software renderer detected, disabling post processing. "
+                         "Use -post to force it back on." << std::endl;
+            postProcessDisabled = true;
+        }
+    }
     glfwSetFramebufferSizeCallback(window, framebufferSizeCallback);
     glfwSetKeyCallback(window, GameConsoleKeyCallback);
     glfwSetCharCallback(window, GameConsoleCharCallback);
@@ -857,11 +1011,13 @@ int main(int argc, char* argv[]) {
 
     static PostProcess_L postProcess;
     postProcess.init();
+    postProcess.setEnabled(!postProcessDisabled);
 
     Texture_L menuTextureParser;
     menuTextureParser.disableTextures = disableTextures;
     menuTextureParser.init(gameDir);
     parseGameInfo(&menuTextureParser);
+    Sound_L::Get().init(gameDir, &menuTextureParser);
 
     Menu_L menu;
     menu.init(window, &menuTextureParser, gameDir, gameTitle);
@@ -949,23 +1105,6 @@ int main(int argc, char* argv[]) {
         return false;
     };
 
-    stbi_set_flip_vertically_on_load(false);
-    int channels = 0;
-    unsigned char* imgData = stbi_load("logo.png", &logoWidth, &logoHeight, &channels, 4);
-    if (imgData) {
-        glGenTextures(1, &logoTexture);
-        glBindTexture(GL_TEXTURE_2D, logoTexture);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, logoWidth, logoHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, imgData);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, 0x812F);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, 0x812F);
-        stbi_image_free(imgData);
-        logoLoaded = true;
-    } else {
-        std::cout << "[FileSystem] missing: logo.png" << std::endl;
-    }
-
     TransitionState transState;
     bool seamlessTransition = false;
 
@@ -978,7 +1117,7 @@ int main(int argc, char* argv[]) {
             if (menuResult == MenuResult::Quit || menu.selectedMap().empty()) {
                 menu.shutdown();
                 postProcess.shutdown();
-                if (logoLoaded) glDeleteTextures(1, &logoTexture);
+
                 Multiplayer_L::shutdown();
                 glfwDestroyWindow(window);
                 glfwTerminate();
@@ -1048,16 +1187,7 @@ int main(int argc, char* argv[]) {
             inGameplay = true;
             GameConsoleApplyOpenState(window);
 
-            if (seamlessTransition && logoLoaded) {
-                glFlush();
-                double startTime = glfwGetTime();
-                while (!glfwWindowShouldClose(window) && glfwGetTime() - startTime < 1.2) {
-                    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-                    DrawLogoOverlay(windowWidth, windowHeight);
-                    glfwSwapBuffers(window);
-                    glfwPollEvents();
-                }
-            }
+            DrawLoadingScreen(window, selectedMap, "Preparing game content...", 0.03f);
 
             Texture_L materialParser;
             materialParser.disableTextures = disableTextures;
@@ -1113,6 +1243,20 @@ int main(int argc, char* argv[]) {
                     mapLoaded = mapParser.loadMapFromData(mapData, virtualMapPath);
             }
             if (!mapLoaded) mapLoaded = mapParser.loadMap(fullMapPath);
+            if (!mapLoaded && finalMapName.find("/") == std::string::npos &&
+                finalMapName.find("\\") == std::string::npos) {
+                // Maps shipped next to the executable (e.g. the Sauce test map).
+                const std::filesystem::path exeDir = executableDirectory();
+                if (!exeDir.empty()) {
+                    const auto localMap = exeDir / "maps" / FsCompat::fromUtf8(finalMapName);
+                    if (FsCompat::isRegularFile(localMap)) {
+                        mapLoaded = mapParser.loadMap(FsCompat::toUtf8(localMap));
+                        if (mapLoaded) std::cout << "[BSP] Loaded bundled map " << FsCompat::toUtf8(localMap) << std::endl;
+                    }
+                }
+            }
+
+            DrawLoadingScreen(window, selectedMap, "Building world geometry...", 0.30f);
 
             if (!mapLoaded) {
                 DemoPlayer::stop();
@@ -1126,6 +1270,7 @@ int main(int argc, char* argv[]) {
             }
 
             mapParser.setupTextures(materialParser);
+            DrawLoadingScreen(window, selectedMap, "Loading materials and lightmaps...", 0.50f);
             cubemapManager.load(finalMapName, mapParser.entityData, materialParser);
 
             std::vector<Vec3> bspCollisionVertices;
@@ -1163,10 +1308,13 @@ int main(int argc, char* argv[]) {
                 bspCollisionIndices.push_back(baseIdx + 1);
                 bspCollisionIndices.push_back(baseIdx + 2);
             }
+            DrawLoadingScreen(window, selectedMap, "Building collision for the level...", 0.70f);
             PhysicsWorld::setWorldCollision(bspCollisionVertices, bspCollisionIndices);
 
             lightManager.parseLights(mapParser.entityData);
+            DrawLoadingScreen(window, selectedMap, "Spawning entities...", 0.88f);
             entManager.parseMapEntities(mapParser.entityData, &mapParser);
+            DrawLoadingScreen(window, selectedMap, "Finishing up...", 0.97f);
 
             unsigned int skyTex[6] = { 0 };
             std::string sname = mapParser.mapSkyboxName;
@@ -1244,16 +1392,6 @@ int main(int argc, char* argv[]) {
             for (const std::string& weaponClass : player.weaponInventory) {
                 Entity* spawned = entManager.spawn(weaponClass, player.pos);
                 MarkMultiplayerSpawn(spawned);
-            }
-
-            if (logoLoaded && !seamlessTransition) {
-                double startTime = glfwGetTime();
-                while (!glfwWindowShouldClose(window) && glfwGetTime() - startTime < 1.2) {
-                    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-                    DrawLogoOverlay(windowWidth, windowHeight);
-                    glfwSwapBuffers(window);
-                    glfwPollEvents();
-                }
             }
 
             glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
@@ -1981,6 +2119,23 @@ int main(int argc, char* argv[]) {
                 menu.handleConsoleOverlayInput(window, windowWidth, windowHeight);
                 menu.renderConsoleOverlay(windowWidth, windowHeight);
 
+                if (std::getenv("SAUCE_FPS_LOG")) {
+                    static double fpsWindowStart = glfwGetTime();
+                    static int fpsFrames = 0;
+                    ++fpsFrames;
+                    const double now = glfwGetTime();
+                    if (now - fpsWindowStart >= 2.0) {
+                        std::fprintf(stderr, "[FPS] %.1f (%.2f ms/frame, %dx%d) pos=(%.0f %.0f %.0f) yaw=%.0f pitch=%.0f\n",
+                                     fpsFrames / (now - fpsWindowStart),
+                                     1000.0 * (now - fpsWindowStart) / fpsFrames,
+                                     windowWidth, windowHeight,
+                                     player.pos.x, player.pos.y, player.pos.z,
+                                     player.yaw, player.pitch);
+                        fpsWindowStart = now;
+                        fpsFrames = 0;
+                    }
+                }
+
                 glfwSwapBuffers(window);
 
                 if (openPauseMenu) {
@@ -2041,7 +2196,7 @@ int main(int argc, char* argv[]) {
     Multiplayer_L::shutdown();
     menu.shutdown();
     postProcess.shutdown();
-    if (logoLoaded) glDeleteTextures(1, &logoTexture);
+
     glfwDestroyWindow(window);
     glfwTerminate();
     return 0;

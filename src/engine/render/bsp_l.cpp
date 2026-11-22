@@ -460,8 +460,105 @@ void BSP_L::setupTextures(Texture_L& texL) {
     buildDisplacements();
     buildLightmaps();
     buildModelLightmapVolume();
-    opaqueWorldList=glGenLists(1);
-    if(opaqueWorldList){glNewList(opaqueWorldList,GL_COMPILE);glDisable(GL_BLEND);glDisable(GL_ALPHA_TEST);glColor4f(1,1,1,1);for(size_t fIdx=0;fIdx<faces.size();++fIdx){if(!faceRenderable[fIdx])continue;const auto& f=faces[fIdx];const auto& ti=texinfos[f.texinfo];unsigned int tex=0;if(ti.texdata>=0){auto it=glTextures.find(ti.texdata);if(it!=glTextures.end())tex=it->second;}if(textureSystem && textureSystem->materialUsesTransparency(tex))continue;if(textureSystem && textureSystem->materialUsesAlphaTest(tex)){glEnable(GL_ALPHA_TEST);glAlphaFunc(GL_GREATER,0.01f);}else{glDisable(GL_ALPHA_TEST);}glBindTexture(GL_TEXTURE_2D,tex);glBegin(GL_POLYGON);if(f.numedges>=3){const int a=surfedges[f.firstedge],b=surfedges[f.firstedge+1],c=surfedges[f.firstedge+2];const Vec3 v0=vertices[edges[std::abs(a)].v[a<0?1:0]].position;const Vec3 v1=vertices[edges[std::abs(b)].v[b<0?1:0]].position;const Vec3 v2=vertices[edges[std::abs(c)].v[c<0?1:0]].position;const Vec3 n=(v1-v0).cross(v2-v0).normalize();glNormal3f(n.x,n.y,n.z);}for(int i=0;i<f.numedges;++i){const int se=surfedges[f.firstedge+i];const auto& v=vertices[edges[std::abs(se)].v[se<0?1:0]];float u=v.position.x*ti.textureVecs[0][0]+(-v.position.z)*ti.textureVecs[0][1]+v.position.y*ti.textureVecs[0][2]+ti.textureVecs[0][3];float vt=v.position.x*ti.textureVecs[1][0]+(-v.position.z)*ti.textureVecs[1][1]+v.position.y*ti.textureVecs[1][2]+ti.textureVecs[1][3];if(ti.texdata>=0&&ti.texdata<(int)texdatas.size()){float tw=(float)texdatas[ti.texdata].width,th=(float)texdatas[ti.texdata].height;if(tw>0&&th>0){u/=tw;vt/=th;}}glTexCoord2f(u,vt);glVertex3f(v.position.x,v.position.y,v.position.z);}glEnd();}glEndList();}
+    opaqueWorldList = glGenLists(1);
+    if (opaqueWorldList) {
+        EnsureBSPMultitexture();
+        const bool multitexture = glActiveTexture_BSP && glMultiTexCoord2f_BSP;
+        glNewList(opaqueWorldList, GL_COMPILE);
+        glDisable(GL_BLEND);
+        glDisable(GL_ALPHA_TEST);
+        glColor4f(1, 1, 1, 1);
+        if (multitexture) {
+            glActiveTexture_BSP(GL_TEXTURE1);
+            glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+            glActiveTexture_BSP(GL_TEXTURE0);
+        }
+
+        for (size_t fIdx = 0; fIdx < faces.size(); ++fIdx) {
+            if (!faceRenderable[fIdx]) continue;
+            const auto& f = faces[fIdx];
+            const auto& ti = texinfos[f.texinfo];
+
+            unsigned int tex = 0;
+            if (ti.texdata >= 0) {
+                auto it = glTextures.find(ti.texdata);
+                if (it != glTextures.end()) tex = it->second;
+            }
+            if (textureSystem && textureSystem->materialUsesTransparency(tex)) continue;
+
+            if (textureSystem && textureSystem->materialUsesAlphaTest(tex)) {
+                glEnable(GL_ALPHA_TEST);
+                glAlphaFunc(GL_GREATER, 0.01f);
+            } else {
+                glDisable(GL_ALPHA_TEST);
+            }
+
+            const unsigned int lightmap = fIdx < faceLightmapTextures.size() ? faceLightmapTextures[fIdx] : 0;
+            const bool useLightmap = multitexture && lightmap != 0;
+            if (multitexture) {
+                glActiveTexture_BSP(GL_TEXTURE1);
+                if (useLightmap) {
+                    glEnable(GL_TEXTURE_2D);
+                    glBindTexture(GL_TEXTURE_2D, lightmap);
+                } else {
+                    glDisable(GL_TEXTURE_2D);
+                }
+                glActiveTexture_BSP(GL_TEXTURE0);
+            }
+
+            glBindTexture(GL_TEXTURE_2D, tex);
+            glBegin(GL_POLYGON);
+            if (f.numedges >= 3) {
+                const int a = surfedges[f.firstedge];
+                const int b = surfedges[f.firstedge + 1];
+                const int c = surfedges[f.firstedge + 2];
+                const Vec3 v0 = vertices[edges[std::abs(a)].v[a < 0 ? 1 : 0]].position;
+                const Vec3 v1 = vertices[edges[std::abs(b)].v[b < 0 ? 1 : 0]].position;
+                const Vec3 v2 = vertices[edges[std::abs(c)].v[c < 0 ? 1 : 0]].position;
+                const Vec3 n = (v1 - v0).cross(v2 - v0).normalize();
+                glNormal3f(n.x, n.y, n.z);
+            }
+
+            const float lmWidth = static_cast<float>(f.LightmapTextureSizeInLuxels[0] + 1);
+            const float lmHeight = static_cast<float>(f.LightmapTextureSizeInLuxels[1] + 1);
+            const float lmMinsU = static_cast<float>(f.LightmapTextureMinsInLuxels[0]);
+            const float lmMinsV = static_cast<float>(f.LightmapTextureMinsInLuxels[1]);
+
+            for (int i = 0; i < f.numedges; ++i) {
+                const int se = surfedges[f.firstedge + i];
+                const auto& v = vertices[edges[std::abs(se)].v[se < 0 ? 1 : 0]];
+
+                float u = v.position.x * ti.textureVecs[0][0] + (-v.position.z) * ti.textureVecs[0][1] +
+                          v.position.y * ti.textureVecs[0][2] + ti.textureVecs[0][3];
+                float vt = v.position.x * ti.textureVecs[1][0] + (-v.position.z) * ti.textureVecs[1][1] +
+                           v.position.y * ti.textureVecs[1][2] + ti.textureVecs[1][3];
+                if (ti.texdata >= 0 && ti.texdata < (int)texdatas.size()) {
+                    const float tw = (float)texdatas[ti.texdata].width;
+                    const float th = (float)texdatas[ti.texdata].height;
+                    if (tw > 0 && th > 0) { u /= tw; vt /= th; }
+                }
+
+                if (useLightmap && lmWidth > 0.0f && lmHeight > 0.0f) {
+                    const float lu = (v.position.x * ti.lightmapVecs[0][0] + (-v.position.z) * ti.lightmapVecs[0][1] +
+                                      v.position.y * ti.lightmapVecs[0][2] + ti.lightmapVecs[0][3] - lmMinsU) / lmWidth;
+                    const float lv = (v.position.x * ti.lightmapVecs[1][0] + (-v.position.z) * ti.lightmapVecs[1][1] +
+                                      v.position.y * ti.lightmapVecs[1][2] + ti.lightmapVecs[1][3] - lmMinsV) / lmHeight;
+                    glMultiTexCoord2f_BSP(GL_TEXTURE1, lu, lv);
+                }
+
+                glTexCoord2f(u, vt);
+                glVertex3f(v.position.x, v.position.y, v.position.z);
+            }
+            glEnd();
+        }
+
+        if (multitexture) {
+            glActiveTexture_BSP(GL_TEXTURE1);
+            glDisable(GL_TEXTURE_2D);
+            glActiveTexture_BSP(GL_TEXTURE0);
+        }
+        glEndList();
+    }
     if(!dispTriangles.empty()){displacementList=glGenLists(1);if(displacementList){glNewList(displacementList,GL_COMPILE);glDisable(GL_BLEND);glDisable(GL_ALPHA_TEST);glColor4f(1,1,1,1);glBegin(GL_TRIANGLES);int curTex=-1;for(const auto& tri:dispTriangles){if(tri.texID!=curTex){glEnd();curTex=tri.texID;auto it=glTextures.find(curTex);glBindTexture(GL_TEXTURE_2D,it==glTextures.end()?0:it->second);glBegin(GL_TRIANGLES);}const Vec3 n=(tri.v[1]-tri.v[0]).cross(tri.v[2]-tri.v[0]).normalize();glNormal3f(n.x,n.y,n.z);for(int i=0;i<3;++i){glTexCoord2f(tri.uv[i].x,tri.uv[i].y);glVertex3f(tri.v[i].x,tri.v[i].y,tri.v[i].z);}}glEnd();glEndList();}}
 }
 
