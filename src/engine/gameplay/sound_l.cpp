@@ -240,7 +240,7 @@ void Sound_L::setFileSystem(Texture_L* fileSystem) {
 void Sound_L::update(float) {}
 
 void Sound_L::setMasterVolume(float volume) {
-    masterVolume = std::clamp(volume, 0.0f, 1.0f);
+    masterVolume.store(std::clamp(volume, 0.0f, 1.0f));
 }
 
 void Sound_L::enqueue(const Request& req) {
@@ -599,6 +599,7 @@ void Sound_L::processRequests() {
 
 void Sound_L::mixBlock(std::vector<int16_t>& dst) {
     std::fill(dst.begin(), dst.end(), 0);
+    const float master = masterVolume.load();
     ListenerState s;
     { std::lock_guard<std::mutex> lock(stateMutex); s = listener; }
     std::vector<float> dryL(outputFrames, 0.0f), dryR(outputFrames, 0.0f), send(outputFrames, 0.0f);
@@ -649,8 +650,8 @@ void Sound_L::mixBlock(std::vector<int16_t>& dst) {
         reverbR[w] = std::clamp(nextR + dampR[w] * 0.28f, -1.0f, 1.0f);
         float outL = dryL[i] * s.dry + (earlyL + diffuseL) * 0.85f;
         float outR = dryR[i] * s.dry + (earlyR + diffuseR) * 0.85f;
-        outL = std::tanh(outL * 1.08f) * masterVolume;
-        outR = std::tanh(outR * 1.08f) * masterVolume;
+        outL = std::tanh(outL * 1.08f) * master;
+        outR = std::tanh(outR * 1.08f) * master;
         dst[i*2] = (int16_t)std::lround(std::clamp(outL,-1.0f,1.0f)*32767.0f);
         dst[i*2+1] = (int16_t)std::lround(std::clamp(outR,-1.0f,1.0f)*32767.0f);
         reverbIndex = (reverbIndex + 1) % reverbL.size();

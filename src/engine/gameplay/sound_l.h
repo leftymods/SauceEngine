@@ -69,7 +69,7 @@ private:
         bool reverb = true;
         unsigned int handle = 0;
     };
-    float masterVolume = 0.8f;
+    std::atomic<float> masterVolume{0.8f};
     std::string gameDirectory;
     Texture_L* textureFS = nullptr;
     mutable std::mutex stateMutex;

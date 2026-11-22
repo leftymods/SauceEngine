@@ -16,6 +16,7 @@ void LoadSettings(const std::string& path) {
         else if (key == "postprocess") in >> gSettings.postProcess;
         else if (key == "sensitivity") in >> gSettings.mouseSensitivity;
         else if (key == "volume") in >> gSettings.masterVolume;
+        else if (key == "menusounds") in >> gSettings.menuSounds;
         else {
             std::string ignored;
             std::getline(in, ignored);
@@ -35,5 +36,6 @@ void SaveSettings(const std::string& path) {
         << "fullscreen " << (gSettings.fullscreen ? 1 : 0) << '\n'
         << "postprocess " << (gSettings.postProcess ? 1 : 0) << '\n'
         << "sensitivity " << gSettings.mouseSensitivity << '\n'
-        << "volume " << gSettings.masterVolume << '\n';
+        << "volume " << gSettings.masterVolume << '\n'
+        << "menusounds " << (gSettings.menuSounds ? 1 : 0) << '\n';
 }

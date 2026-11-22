@@ -11,6 +11,7 @@ struct EngineSettings {
     bool postProcess = true;
     float mouseSensitivity = 1.0f;
     float masterVolume = 0.8f;
+    bool menuSounds = true;
 };
 
 extern EngineSettings gSettings;

@@ -503,7 +503,7 @@ bool Menu_L::initFonts() {
     if (!ownerWindow) return false;
 
     struct FontSpec { Font* dst; int size; };
-    const FontSpec specs[] = {{&fontTitle,56},{&fontMenu,16},{&fontSmall,12},{&fontTiny,10}};
+    const FontSpec specs[] = {{&fontTitle,56},{&fontMenu,20},{&fontSmall,16},{&fontTiny,14}};
     for (const auto& spec : specs) {
         spec.dst->listBase = 1;
         spec.dst->hfont = nullptr;

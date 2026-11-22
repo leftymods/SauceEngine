@@ -21,6 +21,11 @@ void draw(int pixelHeight, const std::string& text, float x, float topY,
 // Width in pixels of `text` rendered at `pixelHeight`.
 float width(int pixelHeight, const std::string& text, bool useGameFont = true);
 
+// Monospaced variant used for technical readouts and numeric values.
+void drawMono(int pixelHeight, const std::string& text, float x, float topY,
+              float r, float g, float b, float a = 1.0f);
+float monoWidth(int pixelHeight, const std::string& text);
+
 // Releases all cached atlases and the font file.
 void shutdown();
 

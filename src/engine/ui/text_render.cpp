@@ -43,6 +43,7 @@ struct AtlasFont {
 
 std::vector<unsigned char> gPrimaryFile;
 std::vector<unsigned char> gFallbackFile;
+std::vector<unsigned char> gMonoFile;
 bool gFontsLoaded = false;
 std::map<int, std::unique_ptr<AtlasFont>> gFontCache;
 std::vector<std::string> gGameFontPaths;
@@ -101,6 +102,17 @@ bool loadFonts() {
     if (!gFallbackFile.empty()) {
         std::fprintf(stderr, "[TextRender] Glyph fallback font loaded.\n");
     }
+    const char* monoCandidates[] = {
+        "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+        "/usr/share/fonts/TTF/DejaVuSansMono.ttf",
+        "/usr/share/fonts/dejavu/DejaVuSansMono.ttf",
+        "C:\\Windows\\Fonts\\consola.ttf",
+        "C:/Windows/Fonts/consola.ttf",
+    };
+    for (const char* path : monoCandidates) {
+        if (readFontFile(path, gMonoFile)) break;
+    }
+    if (gMonoFile.empty()) gMonoFile = gPrimaryFile;
     return true;
 }
 
@@ -132,22 +144,24 @@ int mapCodepoint(int code) {
     return code;
 }
 
-AtlasFont* getFont(int pixelHeight, bool useGameFont) {
+AtlasFont* getFont(int pixelHeight, bool useGameFont, bool mono) {
     if (pixelHeight < 1) pixelHeight = 1;
-    const int cacheKey = pixelHeight * 2 + (useGameFont ? 1 : 0);
+    const int cacheKey = pixelHeight * 4 + (useGameFont ? 1 : 0) + (mono ? 2 : 0);
     auto existing = gFontCache.find(cacheKey);
     if (existing != gFontCache.end()) return existing->second.get();
     if (!loadFonts()) return nullptr;
 
+    const std::vector<unsigned char>& primaryData = mono ? gMonoFile : gPrimaryFile;
     stbtt_fontinfo primary{};
-    const int primaryOffset = stbtt_GetFontOffsetForIndex(gPrimaryFile.data(), 0);
-    if (primaryOffset < 0 || !stbtt_InitFont(&primary, gPrimaryFile.data(), primaryOffset)) return nullptr;
+    const int primaryOffset = stbtt_GetFontOffsetForIndex(primaryData.data(), 0);
+    if (primaryOffset < 0 || !stbtt_InitFont(&primary, primaryData.data(), primaryOffset)) return nullptr;
 
+    const std::vector<unsigned char>& fallbackData = mono ? gMonoFile : gFallbackFile;
     stbtt_fontinfo fallback{};
     bool hasFallback = false;
-    if (!gFallbackFile.empty()) {
-        const int fallbackOffset = stbtt_GetFontOffsetForIndex(gFallbackFile.data(), 0);
-        hasFallback = fallbackOffset >= 0 && stbtt_InitFont(&fallback, gFallbackFile.data(), fallbackOffset);
+    if (!fallbackData.empty()) {
+        const int fallbackOffset = stbtt_GetFontOffsetForIndex(fallbackData.data(), 0);
+        hasFallback = fallbackOffset >= 0 && stbtt_InitFont(&fallback, fallbackData.data(), fallbackOffset);
     }
 
     const float primaryScale = stbtt_ScaleForPixelHeight(&primary, static_cast<float>(pixelHeight));
@@ -158,7 +172,7 @@ AtlasFont* getFont(int pixelHeight, bool useGameFont) {
     // The Half-Life 2 UI font is a decorative uppercase-only face. It looks
     // right for the big title, but menus/HUD need a regular face, so small
     // text is rendered with the fallback font instead.
-    const bool gameFont = useGameFont && (hasFallback ? pixelHeight >= 32 : true);
+    const bool gameFont = useGameFont && !mono && (hasFallback ? pixelHeight >= 32 : true);
 
     auto glyphBox = [](stbtt_fontinfo& info, float scale, int glyphIndex,
                        int& x0, int& y0, int& x1, int& y1) -> bool {
@@ -310,13 +324,14 @@ void setGameDirectory(const std::string& gameDir) {
     gFontCache.clear();
     gPrimaryFile.clear();
     gFallbackFile.clear();
+    gMonoFile.clear();
     gFontsLoaded = false;
 }
 
 void draw(int pixelHeight, const std::string& text, float x, float topY,
           float r, float g, float b, float a, bool useGameFont) {
     if (text.empty()) return;
-    AtlasFont* font = getFont(pixelHeight, useGameFont);
+    AtlasFont* font = getFont(pixelHeight, useGameFont, false);
     if (!font || !font->texture) return;
 
     const float baseline = topY + font->ascent;
@@ -352,7 +367,55 @@ void draw(int pixelHeight, const std::string& text, float x, float topY,
 
 float width(int pixelHeight, const std::string& text, bool useGameFont) {
     if (text.empty()) return 0.0f;
-    AtlasFont* font = getFont(pixelHeight, useGameFont);
+    AtlasFont* font = getFont(pixelHeight, useGameFont, false);
+    if (!font) return 0.0f;
+    float pen = 0.0f;
+    size_t index = 0;
+    while (index < text.size()) {
+        int code = decodeUtf8(text, index);
+        if (code == '\n') continue;
+        code = mapCodepoint(code);
+        pen += font->glyphs[code - kFirstChar].advance;
+    }
+    return std::ceil(pen);
+}
+
+void drawMono(int pixelHeight, const std::string& text, float x, float topY,
+              float r, float g, float b, float a) {
+    if (text.empty()) return;
+    AtlasFont* font = getFont(pixelHeight, false, true);
+    if (!font || !font->texture) return;
+
+    const float baseline = topY + font->ascent;
+    glEnable(GL_TEXTURE_2D);
+    glBindTexture(GL_TEXTURE_2D, font->texture);
+    glColor4f(r, g, b, a);
+    glBegin(GL_QUADS);
+    float pen = std::floor(x + 0.5f);
+    size_t index = 0;
+    while (index < text.size()) {
+        int code = decodeUtf8(text, index);
+        if (code == '\n') continue;
+        code = mapCodepoint(code);
+        const Glyph& glyph = font->glyphs[code - kFirstChar];
+        if (glyph.visible) {
+            const float x0 = pen + glyph.x0;
+            const float x1 = pen + glyph.x1;
+            const float y0 = baseline + glyph.y0;
+            const float y1 = baseline + glyph.y1;
+            glTexCoord2f(glyph.u0, glyph.v0); glVertex2f(x0, y0);
+            glTexCoord2f(glyph.u1, glyph.v0); glVertex2f(x1, y0);
+            glTexCoord2f(glyph.u1, glyph.v1); glVertex2f(x1, y1);
+            glTexCoord2f(glyph.u0, glyph.v1); glVertex2f(x0, y1);
+        }
+        pen += glyph.advance;
+    }
+    glEnd();
+}
+
+float monoWidth(int pixelHeight, const std::string& text) {
+    if (text.empty()) return 0.0f;
+    AtlasFont* font = getFont(pixelHeight, false, true);
     if (!font) return 0.0f;
     float pen = 0.0f;
     size_t index = 0;
@@ -372,6 +435,7 @@ void shutdown() {
     gFontCache.clear();
     gPrimaryFile.clear();
     gFallbackFile.clear();
+    gMonoFile.clear();
     gFontsLoaded = false;
 }
 

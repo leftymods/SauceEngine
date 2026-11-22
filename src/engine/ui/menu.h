@@ -178,6 +178,7 @@ private:
     void drawButtonText(const std::string& label, float x, float y, float w, float h, bool hover);
     bool hovered(float x, float y, float w, float h) const;
 
+    int optionsTab = 0;
     float mouseX = -1.0f;
     float mouseY = -1.0f;
 
