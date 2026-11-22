@@ -3,11 +3,9 @@
 #include "menu_kv.h"
 #include "multiplayer.h"
 #include "texture_l.h"
-#include <windows.h>
-#define GLFW_EXPOSE_NATIVE_WIN32
 #include <GLFW/glfw3.h>
-#include <GLFW/glfw3native.h>
 #include <GL/gl.h>
+#include "text_render.h"
 
 #include <algorithm>
 #include <cctype>
@@ -77,13 +75,6 @@ static std::string asciiSafe(const std::string& input) {
         else out.push_back('?');
     }
     return out;
-}
-
-static HFONT makeSystemFont(int pixelHeight, int weight) {
-    return CreateFontA(-pixelHeight, 0, 0, 0, weight, FALSE, FALSE, FALSE,
-                       DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-                       DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE,
-                       "MS Shell Dlg 2");
 }
 
 static bool readTextResource(Texture_L* fs, const std::string& gameDirectory,
@@ -497,39 +488,22 @@ void Menu_L::loadChapters() {
 
 bool Menu_L::initFonts() {
     if (!ownerWindow) return false;
-    HWND hwnd = reinterpret_cast<HWND>(glfwGetWin32Window(ownerWindow));
-    HDC dc = GetDC(hwnd);
-    if (!dc) return false;
 
-    struct FontSpec { Font* dst; int size; int weight; };
-    const FontSpec specs[] = {{&fontTitle,56,FW_NORMAL},{&fontMenu,16,FW_NORMAL},{&fontSmall,12,FW_NORMAL},{&fontTiny,10,FW_NORMAL}};
-    bool ok = true;
+    struct FontSpec { Font* dst; int size; };
+    const FontSpec specs[] = {{&fontTitle,56},{&fontMenu,16},{&fontSmall,12},{&fontTiny,10}};
     for (const auto& spec : specs) {
-        HFONT font = makeSystemFont(spec.size, spec.weight);
-        if (!font) { ok = false; continue; }
-        HGDIOBJ old = SelectObject(dc, font);
-        spec.dst->listBase = glGenLists(96);
-        spec.dst->hfont = font;
+        spec.dst->listBase = 1;
+        spec.dst->hfont = nullptr;
         spec.dst->pixelHeight = spec.size;
-        if (!spec.dst->listBase || !wglUseFontBitmapsA(dc, 32, 96, spec.dst->listBase)) {
-            if (spec.dst->listBase) glDeleteLists(spec.dst->listBase, 96);
-            spec.dst->listBase = 0;
-            DeleteObject(font);
-            spec.dst->hfont = nullptr;
-            ok = false;
-        } else spec.dst->valid = true;
-        SelectObject(dc, old);
+        spec.dst->valid = true;
     }
-    ReleaseDC(hwnd, dc);
-    return ok;
+    return true;
 }
 
 void Menu_L::destroyFonts() {
-    for (Font* font : {&fontTitle, &fontMenu, &fontSmall, &fontTiny}) {
-        if (font->listBase) glDeleteLists(font->listBase, 96);
-        if (font->hfont) DeleteObject(static_cast<HFONT>(font->hfont));
-        *font = Font{};
-    }
+    // Glyph atlases are owned by the shared TextRender cache, nothing to free
+    // per menu instance.
+    for (Font* font : {&fontTitle, &fontMenu, &fontSmall, &fontTiny}) *font = Font{};
     fontsReady = false;
 }
 

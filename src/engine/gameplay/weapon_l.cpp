@@ -5,7 +5,7 @@
 #include "npc_l.h"
 #include "sound_l.h"
 #include "texture_l.h"
-#include <windows.h>
+#include "platform.h"
 #include <algorithm>
 #include <cmath>
 #include <cctype>
@@ -24,7 +24,7 @@
 #include <GLFW/glfw3.h>
 
 static void wlShowEngineError(const char* message) {
-    MessageBoxA(nullptr, message, "Engine Error", MB_ICONERROR | MB_OK);
+    Plat::ShowMessage("Engine Error", message);
 }
 
 static std::string wlLower(std::string s) {

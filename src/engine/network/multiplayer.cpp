@@ -1,7 +1,5 @@
 #include "multiplayer.h"
-#include <winsock2.h>
-#include <ws2tcpip.h>
-#include <windows.h>
+#include "net_compat.h"
 #include <mutex>
 #include <deque>
 #include <unordered_map>
@@ -13,7 +11,9 @@
 #include <vector>
 #include <chrono>
 
+#ifdef _WIN32
 #pragma comment(lib, "ws2_32.lib")
+#endif
 
 namespace {
 struct Packet { std::vector<char> data; };
@@ -101,8 +101,13 @@ void setError(const std::string& stage, const std::string& detail, int code) {
 
 void ensureWSA() {
     if (g_wsaStarted) return;
+#ifdef _WIN32
     WSADATA d{};
     if (WSAStartup(MAKEWORD(2, 2), &d) == 0) g_wsaStarted = true;
+#else
+    // BSD sockets need no global initialisation.
+    g_wsaStarted = true;
+#endif
 }
 
 void putU32(std::vector<char>& b, unsigned int v) {
@@ -210,7 +215,7 @@ void flushOut() {
 
 void disconnectSocket(bool clearQueue) {
     if (g_sock != INVALID_SOCKET) {
-        shutdown(g_sock, SD_BOTH);
+        shutdown(g_sock, MP_SD_BOTH);
         closesocket(g_sock);
         g_sock = INVALID_SOCKET;
     }
@@ -321,8 +326,7 @@ void recvAll() {
 }
 
 bool setNonBlocking(SOCKET s) {
-    u_long mode = 1;
-    return ioctlsocket(s, FIONBIO, &mode) == 0;
+    return mpSetSocketNonBlocking(s) == 0;
 }
 
 void tuneSocket(SOCKET s) {
@@ -357,6 +361,7 @@ bool resolveIPv4(const std::string& host, unsigned short port, sockaddr_in& out)
     return found;
 }
 
+#ifdef _WIN32
 std::string readRegistryString(HKEY root, const char* path, const char* value) {
     HKEY key = nullptr;
     if (RegOpenKeyExA(root, path, 0, KEY_READ, &key) != ERROR_SUCCESS) return {};
@@ -369,7 +374,13 @@ std::string readRegistryString(HKEY root, const char* path, const char* value) {
     RegCloseKey(key);
     return out;
 }
+#else
+std::string readRegistryString(int, const char*, const char*) {
+    return {};
+}
+#endif
 
+#ifdef _WIN32
 std::string trySteamPersonaName() {
     const char* names[] = { "steam_api64.dll", "steam_api.dll" };
     for (const char* dllName : names) {
@@ -406,6 +417,11 @@ std::string trySteamPersonaName() {
     }
     return {};
 }
+#else
+std::string trySteamPersonaName() {
+    return {};
+}
+#endif
 
 std::string bestLocalIPv4() {
     ensureWSA();
@@ -420,7 +436,7 @@ std::string bestLocalIPv4() {
         if (connect(probe, reinterpret_cast<sockaddr*>(&target), sizeof(target)) == 0) {
             sockaddr_in local{};
             int size = sizeof(local);
-            if (getsockname(probe, reinterpret_cast<sockaddr*>(&local), &size) == 0) {
+            if (mpGetSockName(probe, reinterpret_cast<sockaddr*>(&local), &size) == 0) {
                 char text[INET_ADDRSTRLEN]{};
                 if (InetNtopA(AF_INET, &local.sin_addr, text, sizeof(text))) {
                     closesocket(probe);
@@ -461,7 +477,9 @@ bool Multiplayer_L::parsePort(const std::string& digits, int& out) {
 
 std::string Multiplayer_L::steamNick() {
     std::string value = trySteamPersonaName();
+#ifdef _WIN32
     if (value.empty()) value = readRegistryString(HKEY_CURRENT_USER, "Software\\Valve\\Steam", "AutoLoginUserName");
+#endif
     if (value.empty()) {
         char buf[256]{};
         DWORD n = sizeof(buf);
@@ -633,7 +651,7 @@ bool Multiplayer_L::connectTo(const std::string& ip, int port) {
             FD_SET(g_sock, &exceptSet);
             timeout.tv_sec = 2;
             timeout.tv_usec = 0;
-            const int ready = select(0, &readSet, &writeSet, &exceptSet, &timeout);
+            const int ready = select(MP_SELECT_NFDS(g_sock), &readSet, &writeSet, &exceptSet, &timeout);
             if (ready == SOCKET_ERROR) {
                 pendingError = WSAGetLastError();
                 break;
@@ -641,7 +659,7 @@ bool Multiplayer_L::connectTo(const std::string& ip, int port) {
             if (ready <= 0) continue;
             socketError = 0;
             socketErrorSize = sizeof(socketError);
-            if (getsockopt(g_sock, SOL_SOCKET, SO_ERROR, reinterpret_cast<char*>(&socketError), &socketErrorSize) == SOCKET_ERROR) {
+            if (mpGetSockOpt(g_sock, SOL_SOCKET, SO_ERROR, &socketError, &socketErrorSize) == SOCKET_ERROR) {
                 pendingError = WSAGetLastError();
                 break;
             }
@@ -854,7 +872,7 @@ void Multiplayer_L::tick(float) {
             sockaddr_in peer{};
             int peerSize = sizeof(peer);
             char peerText[INET_ADDRSTRLEN]{};
-            if (getpeername(c, reinterpret_cast<sockaddr*>(&peer), &peerSize) == 0 &&
+            if (mpGetPeerName(c, reinterpret_cast<sockaddr*>(&peer), &peerSize) == 0 &&
                 InetNtopA(AF_INET, &peer.sin_addr, peerText, sizeof(peerText))) {
                 g_peerAddress = peerText;
             } else {

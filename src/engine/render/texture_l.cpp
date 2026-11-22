@@ -9,7 +9,6 @@
 #include <filesystem>
 #include <cstdint>
 #include <limits>
-#include <windows.h>
 #include <GLFW/glfw3.h>
 #include <cstring>
 #include <cctype>
@@ -120,7 +119,9 @@ void Texture_L::init(const std::string& gDir) {
     sizeByTexture.clear();
     surfacePropByTexture.clear();
 
+#ifdef _WIN32
     SetConsoleOutputCP(CP_UTF8);
+#endif
     glCompressedTexImage2D_Ext = reinterpret_cast<PFNGLCOMPRESSEDTEXIMAGE2DPROC>(
         glfwGetProcAddress("glCompressedTexImage2D"));
     if (!glCompressedTexImage2D_Ext) {

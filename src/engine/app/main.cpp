@@ -1,5 +1,7 @@
+#ifdef _WIN32
 #include <windows.h>
 #include <shellapi.h>
+#endif
 #include <GLFW/glfw3.h>
 #include <iostream>
 #include <fstream>
@@ -52,17 +54,16 @@
 #include "engine_console.h"
 #include "demo_player.h"
 #include "fs_compat.h"
+#include "platform.h"
 
 static void ShowEngineError(const std::string& message) {
-    MessageBoxA(NULL, message.c_str(), "Engine Error", MB_ICONERROR | MB_OK);
+    Plat::ShowMessage("Engine Error", message);
 }
 
 static std::filesystem::path executableDirectory() {
-    std::wstring buffer(32768, L'\0');
-    const DWORD length = GetModuleFileNameW(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
-    if (length == 0 || length >= buffer.size()) return {};
-    buffer.resize(length);
-    return std::filesystem::path(buffer).parent_path();
+    const std::string path = Plat::ExecutablePath();
+    if (path.empty()) return {};
+    return std::filesystem::path(FsCompat::fromUtf8(path)).parent_path();
 }
 
 static void appendUniquePath(std::vector<std::filesystem::path>& paths,
@@ -986,7 +987,7 @@ int main(int argc, char* argv[]) {
             selectedMap = menu.selectedMap();
             if (menu.hostGameRequested()) {
                 if (!Multiplayer_L::host(menu.hostPort())) {
-                    MessageBoxA(NULL, "Could not start the multiplayer host on the selected port.", "Multiplayer Error", MB_ICONERROR | MB_OK);
+                    Plat::ShowMessage("Multiplayer Error", "Could not start the multiplayer host on the selected port.");
                     selectedMap.clear();
                     continue;
                 }
@@ -1021,7 +1022,7 @@ int main(int argc, char* argv[]) {
                     selectedMap = menu.selectedMap();
                     if (menu.hostGameRequested()) {
                         if (!Multiplayer_L::host(menu.hostPort())) {
-                            MessageBoxA(NULL, "Could not start the multiplayer host on the selected port.", "Multiplayer Error", MB_ICONERROR | MB_OK);
+                            Plat::ShowMessage("Multiplayer Error", "Could not start the multiplayer host on the selected port.");
                             selectedMap.clear();
                             continue;
                         }
@@ -1118,7 +1119,7 @@ int main(int argc, char* argv[]) {
                 PhysicsWorld::shutdown();
                 Sound_L::Get().shutdown();
                 std::string errorMsg = "Failed to load map file:\n" + fullMapPath;
-                MessageBoxA(NULL, errorMsg.c_str(), "Engine Error", MB_ICONERROR | MB_OK);
+                ShowEngineError(errorMsg);
                 selectedMap.clear();
                 seamlessTransition = false;
                 continue;

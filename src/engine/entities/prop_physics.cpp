@@ -12,8 +12,6 @@
 #include <unordered_set>
 #include <fstream>
 #include <cstdlib>
-#include <windows.h>
-#include <mmsystem.h>
 #include <GLFW/glfw3.h>
 
 static std::string lowerString(std::string s) {

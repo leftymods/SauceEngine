@@ -4,11 +4,9 @@
 #include "multiplayer.h"
 #include "texture_l.h"
 #include "demo_player.h"
-#include <windows.h>
-#define GLFW_EXPOSE_NATIVE_WIN32
 #include <GLFW/glfw3.h>
-#include <GLFW/glfw3native.h>
 #include <GL/gl.h>
+#include "text_render.h"
 
 #include <algorithm>
 #include <cctype>
@@ -95,13 +93,6 @@ static std::string asciiSafe(const std::string& input) {
         else out.push_back('?');
     }
     return out;
-}
-
-static HFONT makeSystemFont(int pixelHeight, int weight) {
-    return CreateFontA(-pixelHeight, 0, 0, 0, weight, FALSE, FALSE, FALSE,
-                       DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-                       DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE,
-                       "MS Shell Dlg 2");
 }
 
 static bool readTextResource(Texture_L* fs, const std::string& gameDirectory,
@@ -334,29 +325,14 @@ void Menu_L::drawLine(float x1, float y1, float x2, float y2, float width, float
 }
 
 float Menu_L::textWidth(const std::string& input, const Font& font) const {
-    if (!font.valid || !font.hfont || !ownerWindow) return 0.0f;
-    HWND hwnd = reinterpret_cast<HWND>(glfwGetWin32Window(ownerWindow));
-    HDC dc = GetDC(hwnd);
-    if (!dc) return 0.0f;
-    HGDIOBJ old = SelectObject(dc, static_cast<HFONT>(font.hfont));
-    SIZE size{0, 0};
-    const std::string text = asciiSafe(input);
-    GetTextExtentPoint32A(dc, text.c_str(), static_cast<int>(text.size()), &size);
-    SelectObject(dc, old);
-    ReleaseDC(hwnd, dc);
-    return static_cast<float>(size.cx);
+    if (!font.valid || !font.pixelHeight) return 0.0f;
+    return TextRender::width(font.pixelHeight, asciiSafe(input));
 }
 
 void Menu_L::drawText(const std::string& input, float x, float y, const Font& font,
                       float r, float g, float b, float alpha) {
-    if (!font.valid || !font.listBase || input.empty()) return;
-    const std::string text = asciiSafe(input);
-    glDisable(GL_TEXTURE_2D);
-    glColor4f(r, g, b, alpha);
-    glRasterPos2f(x, y + font.pixelHeight);
-    glListBase(font.listBase - 32);
-    glCallLists(static_cast<GLsizei>(text.size()), GL_UNSIGNED_BYTE, text.c_str());
-    glEnable(GL_TEXTURE_2D);
+    if (!font.valid || !font.pixelHeight || input.empty()) return;
+    TextRender::draw(font.pixelHeight, asciiSafe(input), x, y, r, g, b, alpha);
 }
 
 void Menu_L::renderPauseFrame(int width, int height) {

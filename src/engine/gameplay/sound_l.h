@@ -1,8 +1,11 @@
 #pragma once
+
+#ifdef _WIN32
 #include <windows.h>
+#include <mmsystem.h>
+#endif
 
 class Texture_L;
-#include <mmsystem.h>
 #include <string>
 #include <vector>
 #include <deque>
@@ -83,9 +86,13 @@ private:
     std::atomic<bool> running{false};
     std::atomic<unsigned int> nextId{1};
     std::atomic<unsigned int> nextLoop{1};
+#ifdef _WIN32
     HWAVEOUT waveOut = nullptr;
-    std::vector<int16_t> outputBuffers[3];
     WAVEHDR headers[3]{};
+#else
+    void* audioSink = nullptr; // pa_simple*
+#endif
+    std::vector<int16_t> outputBuffers[3];
     int currentBuffer = 0;
     int outputFrames = 2048;
     std::vector<float> reverbL;

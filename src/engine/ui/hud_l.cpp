@@ -1,8 +1,8 @@
 #include "hud_l.h"
 #include "weapon_l.h"
 #include <GLFW/glfw3.h>
-#include <windows.h>
 #include <GL/gl.h>
+#include "text_render.h"
 #include <string>
 #include <algorithm>
 #include <cmath>
@@ -37,25 +37,6 @@ void HUD_L::drawNumber(int number,float x,float y,float w,float h){
     const std::string t=std::to_string(std::max(0,number));
     float dx=0.0f;
     for(char c:t){drawDigit(c-'0',x+dx,y,w,h);dx+=w+4.0f;}
-}
-
-static GLuint gHudFontBase = 0;
-
-static void ensureHudFont() {
-    if (gHudFontBase) return;
-    HDC dc = wglGetCurrentDC();
-    if (!dc) return;
-    HFONT font = CreateFontA(-22, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
-                             DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-                             ANTIALIASED_QUALITY, DEFAULT_PITCH | FF_DONTCARE,
-                             "Arial");
-    HFONT old = (HFONT)SelectObject(dc, font);
-    gHudFontBase = glGenLists(256);
-    if (!gHudFontBase || !wglUseFontBitmapsA(dc, 0, 256, gHudFontBase)) {
-        if (gHudFontBase) { glDeleteLists(gHudFontBase, 256); gHudFontBase = 0; }
-    }
-    SelectObject(dc, old);
-    DeleteObject(font);
 }
 
 
@@ -159,10 +140,7 @@ void HUD_L::render(int screenWidth,int screenHeight,const Camera& player,const W
 
 void HUD_L::renderRemotePlayerLabel(int screenWidth, int screenHeight, const std::string& nick) {
     if (nick.empty() || screenWidth <= 0 || screenHeight <= 0) return;
-    ensureHudFont();
-    if (!gHudFontBase) return;
     glDisable(GL_DEPTH_TEST);
-    glDisable(GL_TEXTURE_2D);
     glDisable(GL_LIGHTING);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -177,11 +155,11 @@ void HUD_L::renderRemotePlayerLabel(int screenWidth, int screenHeight, const std
     safeNick.reserve(nick.size());
     for (unsigned char c : nick) safeNick.push_back(c >= 32 && c <= 126 ? static_cast<char>(c) : '?');
     if (safeNick.empty()) safeNick = "Player";
-    glColor4f(1.0f, 0.45f, 0.06f, 0.98f);
-    const float pixelWidth = std::max(1.0f, (float)safeNick.size() * 11.0f);
-    glRasterPos2f((screenWidth - pixelWidth) * 0.5f, screenHeight * 0.5f - 34.0f);
-    glListBase(gHudFontBase);
-    glCallLists((GLsizei)safeNick.size(), GL_UNSIGNED_BYTE, safeNick.data());
+    constexpr int kLabelFontHeight = 18;
+    const float pixelWidth = TextRender::width(kLabelFontHeight, safeNick);
+    TextRender::draw(kLabelFontHeight, safeNick,
+                     (screenWidth - pixelWidth) * 0.5f, screenHeight * 0.5f - 46.0f,
+                     1.0f, 0.45f, 0.06f, 0.98f);
     glPopMatrix();
     glMatrixMode(GL_PROJECTION);
     glPopMatrix();

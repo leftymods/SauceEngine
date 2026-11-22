@@ -14,6 +14,15 @@
 #include <filesystem>
 #include <functional>
 
+#if defined(SAUCE_HAVE_PULSE)
+#include <pulse/simple.h>
+#include <pulse/error.h>
+#endif
+
+#if !defined(_WIN32)
+#include <thread>
+#endif
+
 static uint16_t slU16(const unsigned char* p) { return uint16_t(p[0]) | uint16_t(p[1] << 8); }
 static uint32_t slU32(const unsigned char* p) { return uint32_t(p[0]) | uint32_t(p[1] << 8) | uint32_t(p[2] << 16) | uint32_t(p[3] << 24); }
 
@@ -138,6 +147,7 @@ void Sound_L::init(const std::string& gameDir, Texture_L* fileSystem) {
     dampR.assign(44100, 0.0f);
     reverbIndex = 0;
     { std::lock_guard<std::mutex> lock(stateMutex); recentSounds.clear(); }
+#ifdef _WIN32
     WAVEFORMATEX fmt{};
     fmt.wFormatTag = WAVE_FORMAT_PCM;
     fmt.nChannels = 2;
@@ -149,6 +159,24 @@ void Sound_L::init(const std::string& gameDir, Texture_L* fileSystem) {
         waveOut = nullptr;
         std::cout << "Error: Audio output is unavailable." << std::endl;
     }
+#else
+#if defined(SAUCE_HAVE_PULSE)
+    {
+        pa_sample_spec spec{};
+        spec.format = PA_SAMPLE_S16LE;
+        spec.rate = 44100;
+        spec.channels = 2;
+        int error = 0;
+        audioSink = pa_simple_new(nullptr, "SauceEngine", PA_STREAM_PLAYBACK, nullptr,
+                                  "game audio", &spec, nullptr, nullptr, &error);
+        if (!audioSink) {
+            std::cout << "Error: Audio output is unavailable (" << pa_strerror(error) << ")." << std::endl;
+        }
+    }
+#else
+    std::cout << "Error: Audio output is unavailable." << std::endl;
+#endif
+#endif
     for (auto& b : outputBuffers) b.assign(size_t(outputFrames) * 2, 0);
     running.store(true);
     audioThread = std::thread(&Sound_L::audioLoop, this);
@@ -156,17 +184,35 @@ void Sound_L::init(const std::string& gameDir, Texture_L* fileSystem) {
 
 void Sound_L::shutdown() {
     if (!running.exchange(false)) {
+#ifdef _WIN32
         if (waveOut) { waveOutReset(waveOut); waveOutClose(waveOut); waveOut = nullptr; }
+#else
+        if (audioSink) {
+#if defined(SAUCE_HAVE_PULSE)
+            pa_simple_free(static_cast<pa_simple*>(audioSink));
+#endif
+            audioSink = nullptr;
+        }
+#endif
         return;
     }
     requestCv.notify_all();
     if (audioThread.joinable()) audioThread.join();
+#ifdef _WIN32
     if (waveOut) {
         waveOutReset(waveOut);
         for (auto& h : headers) if (h.dwFlags & WHDR_PREPARED) waveOutUnprepareHeader(waveOut, &h, sizeof(WAVEHDR));
         waveOutClose(waveOut);
         waveOut = nullptr;
     }
+#else
+    if (audioSink) {
+#if defined(SAUCE_HAVE_PULSE)
+        pa_simple_free(static_cast<pa_simple*>(audioSink));
+#endif
+        audioSink = nullptr;
+    }
+#endif
     std::lock_guard<std::mutex> lock(requestMutex);
     requests.clear(); voices.clear(); cache.clear(); loopHandles.clear();
 }
@@ -463,7 +509,9 @@ std::shared_ptr<Sound_L::WavData> Sound_L::loadWav(const std::string& relative) 
             if (textureFS->getFileRawData(candidate, raw) && readWavMemory(raw, *w)) { ok=true; break; }
         }
         std::string path = gameDirectory + "/" + candidate;
+#ifdef _WIN32
         std::replace(path.begin(), path.end(), '/', '\\');
+#endif
         if (readWavFile(path, *w)) { ok=true; break; }
     }
     if (!ok) return {};
@@ -608,6 +656,7 @@ void Sound_L::mixBlock(std::vector<int16_t>& dst) {
 void Sound_L::audioLoop() {
     while (running.load()) {
         processRequests();
+#ifdef _WIN32
         if (!waveOut) { Sleep(10); continue; }
         WAVEHDR& h = headers[currentBuffer];
         if (h.dwFlags & WHDR_PREPARED) {
@@ -620,6 +669,21 @@ void Sound_L::audioLoop() {
         h.dwFlags = 0;
         waveOutPrepareHeader(waveOut, &h, sizeof(WAVEHDR));
         waveOutWrite(waveOut, &h, sizeof(WAVEHDR));
+#else
+        mixBlock(outputBuffers[currentBuffer]);
+        if (audioSink) {
+#if defined(SAUCE_HAVE_PULSE)
+            int error = 0;
+            pa_simple_write(static_cast<pa_simple*>(audioSink),
+                            outputBuffers[currentBuffer].data(),
+                            outputBuffers[currentBuffer].size() * sizeof(int16_t),
+                            &error);
+#endif
+        } else {
+            // No audio device: keep roughly real time so gameplay timing is unaffected.
+            std::this_thread::sleep_for(std::chrono::milliseconds(1000 * outputFrames / 44100));
+        }
+#endif
         currentBuffer = (currentBuffer + 1) % 3;
     }
 }

@@ -1,9 +1,12 @@
+#ifdef _WIN32
 #include <windows.h>
+#endif
 #include <GLFW/glfw3.h>
 #include <algorithm>
 #include <cctype>
 #include <deque>
 #include <functional>
+#include <cstdlib>
 #include <iostream>
 #include <mutex>
 #include <streambuf>
@@ -98,6 +101,9 @@ static std::streambuf* gOriginalCout = nullptr;
 static std::streambuf* gOriginalCerr = nullptr;
 
 void InstallGameConsoleOutputCapture() {
+    // SAUCE_CONSOLE_STDOUT=1 keeps the regular terminal output, which is handy
+    // when running the engine outside of Windows.
+    if (std::getenv("SAUCE_CONSOLE_STDOUT")) return;
     gOriginalCout = std::cout.rdbuf(&gConsoleOutBuf);
     gOriginalCerr = std::cerr.rdbuf(&gConsoleErrBuf);
 }
