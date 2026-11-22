@@ -26,6 +26,7 @@ public:
     void init(const std::string& gameDir, Texture_L* fileSystem = nullptr);
     void setFileSystem(Texture_L* fileSystem);
     void shutdown();
+    void setMasterVolume(float volume);
     void setListener(const Vec3&, const Vec3&, const Vec3&, const Vec3&, BSP_L*);
     void update(float dt);
     struct SoundEvent { Vec3 position{0,0,0}; float volume=1.0f; double time=0.0; };
@@ -68,6 +69,7 @@ private:
         bool reverb = true;
         unsigned int handle = 0;
     };
+    float masterVolume = 0.8f;
     std::string gameDirectory;
     Texture_L* textureFS = nullptr;
     mutable std::mutex stateMutex;

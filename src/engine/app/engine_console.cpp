@@ -316,6 +316,21 @@ bool GameConsole_TakeMapCommand(std::string& outMap) {
 }
 
 
+static std::string consoleDemoRequest;
+static bool consoleDemoRequestPending = false;
+
+void GameConsole_RequestDemo(const std::string& demoName) {
+    consoleDemoRequest = demoName;
+    consoleDemoRequestPending = true;
+}
+
+bool GameConsole_TakeDemoRequest(std::string& outDemo) {
+    if (!consoleDemoRequestPending) return false;
+    consoleDemoRequestPending = false;
+    outDemo = consoleDemoRequest;
+    return true;
+}
+
 bool GameConsole_TakeDemoCommand(std::string& outDemo) {
     outDemo.clear();
 

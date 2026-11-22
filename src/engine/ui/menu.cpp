@@ -4,6 +4,8 @@
 #include "multiplayer.h"
 #include "texture_l.h"
 #include "sound_l.h"
+#include "settings.h"
+#include "platform.h"
 #include "demo_player.h"
 #include <GLFW/glfw3.h>
 #include <GL/gl.h>
@@ -16,6 +18,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <system_error>
 #include <fstream>
 #include <iostream>
 #include <set>
@@ -35,6 +38,8 @@ extern std::vector<std::string> GameConsole_GetSuggestions();
 extern void GameConsole_SetInput(const std::string& value);
 extern bool GameConsole_TakeMapCommand(std::string& outMap);
 extern bool GameConsole_TakeDemoCommand(std::string& outDemo);
+extern void GameConsole_RequestDemo(const std::string& demoName);
+extern bool GameConsole_TakeDemoRequest(std::string& outDemo);
 extern void ConsolePushLine(const std::string& text, bool forceError);
 extern bool GameConsole_PollPassthrough();
 extern bool GameConsole_TakeJoinMapRequest(std::string& outMap);
@@ -549,8 +554,14 @@ void Menu_L::renderMainMenu(int width, int height) {
         const double now = glfwGetTime();
         if (now - last > 1.0) {
             last = now;
-            std::fprintf(stderr, "[UI] mouse=(%.0f, %.0f) hover=%d size=%dx%d\n",
-                         mouseX, mouseY, hoverControl, width, height);
+            int ww = 0, wh = 0, fw = 0, fh = 0;
+            if (ownerWindow) {
+                glfwGetWindowSize(ownerWindow, &ww, &wh);
+                glfwGetFramebufferSize(ownerWindow, &fw, &fh);
+            }
+            std::fprintf(stderr, "[UI] mouse=(%.0f, %.0f) hover=%d draw=%dx%d win=%dx%d fb=%dx%d dialog=(%.0f,%.0f %.0fx%.0f) kind=%d\n",
+                         mouseX, mouseY, hoverControl, width, height, ww, wh, fw, fh,
+                         dialogX, dialogY, dialogW, dialogH, (int)dialog);
         }
     }
 
@@ -588,6 +599,16 @@ void Menu_L::centerDialog(int width, int height) {
     if (dialog == DialogKind::Host) {
         dialogW = 470.0f * s;
         dialogH = 610.0f * s;
+        dialogX = (width - dialogW) * 0.5f;
+        dialogY = (height - dialogH) * 0.5f;
+    } else if (dialog == DialogKind::Options) {
+        dialogW = 560.0f * s;
+        dialogH = 340.0f * s;
+        dialogX = (width - dialogW) * 0.5f;
+        dialogY = (height - dialogH) * 0.5f;
+    } else if (dialog == DialogKind::LoadGame) {
+        dialogW = 560.0f * s;
+        dialogH = 340.0f * s;
         dialogX = (width - dialogW) * 0.5f;
         dialogY = (height - dialogH) * 0.5f;
     } else {
@@ -676,6 +697,8 @@ void Menu_L::renderDialog(int width, int height) {
 
     if (dialog == DialogKind::Chapters) renderChapterSelector(width, height);
     else if (dialog == DialogKind::Host) renderHostDialog(width, height);
+    else if (dialog == DialogKind::Options) renderOptionsDialog(width, height);
+    else if (dialog == DialogKind::LoadGame) renderLoadGameDialog(width, height);
     else renderEmptyDialog(width, height);
 }
 
@@ -684,7 +707,7 @@ void Menu_L::renderEmptyDialog(int width, int height) {
     const float innerX = dialogX + 18.0f * s;
     const float innerY = dialogY + 45.0f * s;
     const float innerW = dialogW - 36.0f * s;
-    const float innerH = dialogH - 78.0f * s;
+    const float innerH = dialogH - 99.0f * s;
     drawSunkenField(innerX, innerY, innerW, innerH, false);
     drawText("This dialog is a placeholder.", innerX + 16.0f * s, innerY + 16.0f * s,
              fontSmall, kDimBaseText[0], kDimBaseText[1], kDimBaseText[2], 0.95f);
@@ -701,6 +724,172 @@ void Menu_L::renderEmptyDialog(int width, int height) {
     const bool cancelHover = hovered(bx, by, bw, bh);
     drawBevelButton(bx, by, bw, bh, cancelPressed, cancelHover);
     drawButtonText("Close", bx, by, bw, bh, cancelHover);
+}
+
+namespace {
+const int kResolutionPresets[][2] = {{1280, 720}, {1600, 900}, {1920, 1080}, {2560, 1440}};
+constexpr int kResolutionCount = 4;
+constexpr float kOptionRowHeight = 42.0f;
+
+int currentResolutionIndex() {
+    for (int i = 0; i < kResolutionCount; ++i) {
+        if (gSettings.width == kResolutionPresets[i][0] && gSettings.height == kResolutionPresets[i][1]) return i;
+    }
+    return 2;
+}
+
+void persistSettings() {
+    const std::string exe = Plat::ExecutablePath();
+    if (exe.empty()) return;
+    std::filesystem::path path = std::filesystem::path(FsCompat::fromUtf8(exe)).parent_path() / "sauce.cfg";
+    SaveSettings(FsCompat::toUtf8(path));
+}
+
+std::vector<std::string> collectDemos(const std::string& gameDirectory) {
+    std::vector<std::string> demos;
+    std::vector<std::filesystem::path> roots;
+    if (!gameDirectory.empty()) {
+        roots.push_back(FsCompat::fromUtf8(gameDirectory) / "demos");
+        roots.push_back(FsCompat::fromUtf8(gameDirectory));
+    }
+    const std::string exe = Plat::ExecutablePath();
+    if (!exe.empty()) roots.push_back(std::filesystem::path(FsCompat::fromUtf8(exe)).parent_path() / "demos");
+    std::error_code ec;
+    for (const auto& root : roots) {
+        if (!std::filesystem::is_directory(root, ec)) continue;
+        for (const auto& entry : std::filesystem::directory_iterator(root, ec)) {
+            if (!entry.is_regular_file()) continue;
+            if (entry.path().extension() != ".dem") continue;
+            demos.push_back(entry.path().stem().string());
+        }
+    }
+    std::sort(demos.begin(), demos.end());
+    demos.erase(std::unique(demos.begin(), demos.end()), demos.end());
+    return demos;
+}
+}
+
+void Menu_L::applyResolution() {
+    if (!ownerWindow) return;
+    if (gSettings.fullscreen) return;
+    glfwSetWindowSize(ownerWindow, gSettings.width, gSettings.height);
+}
+
+void Menu_L::renderOptionsDialog(int width, int height) {
+    const float s = std::max(0.55f, std::min(1.35f, std::min(width / 1920.0f, height / 1080.0f)));
+    const float x = dialogX + 24.0f * s;
+    const float w = dialogW - 48.0f * s;
+    float y = dialogY + 46.0f * s;
+
+    int resIndex = currentResolutionIndex();
+    char resText[48];
+    std::snprintf(resText, sizeof(resText), "%d x %d", gSettings.width, gSettings.height);
+    char sensText[32];
+    std::snprintf(sensText, sizeof(sensText), "%.2f", gSettings.mouseSensitivity);
+    char volText[32];
+    std::snprintf(volText, sizeof(volText), "%d%%", static_cast<int>(gSettings.masterVolume * 100.0f + 0.5f));
+
+    const std::string labels[5] = {"Resolution", "Fullscreen", "Post-processing", "Mouse sensitivity", "Volume"};
+    std::string values[5] = {
+        resText,
+        gSettings.fullscreen ? "On" : "Off",
+        gSettings.postProcess ? "On" : "Off",
+        sensText,
+        volText
+    };
+
+    for (int i = 0; i < 5; ++i) {
+        const float rowY = y + i * kOptionRowHeight * s;
+        drawText(labels[i], x, rowY + 9.0f * s, fontSmall,
+                 kDimBaseText[0], kDimBaseText[1], kDimBaseText[2], 1.0f);
+        drawText(values[i], x + w - 172.0f * s, rowY + 9.0f * s, fontSmall,
+                 kControlText[0], kControlText[1], kControlText[2], 0.98f);
+
+        const float bY = rowY + 5.0f * s;
+        const float bW = 24.0f * s;
+        const float bH = 24.0f * s;
+        const float leftX = x + w - 56.0f * s;
+        const float rightX = x + w - 26.0f * s;
+        const bool hideArrows = (i == 1 || i == 2);
+        if (!hideArrows) {
+            const bool lHover = hovered(leftX, bY, bW, bH);
+            const bool rHover = hovered(rightX, bY, bW, bH);
+            drawBevelButton(leftX, bY, bW, bH, false, lHover);
+            drawButtonText("<", leftX, bY, bW, bH, lHover);
+            drawBevelButton(rightX, bY, bW, bH, false, rHover);
+            drawButtonText(">", rightX, bY, bW, bH, rHover);
+        } else {
+            const float toggleX = x + w - 56.0f * s;
+            const float toggleW = 54.0f * s;
+            const bool tHover = hovered(toggleX, bY, toggleW, bH);
+            drawBevelButton(toggleX, bY, toggleW, bH, false, tHover);
+            const bool toggleOn = (i == 1) ? gSettings.fullscreen : gSettings.postProcess;
+            drawButtonText(toggleOn ? "On" : "Off", toggleX, bY, toggleW, bH, false);
+        }
+        drawRect(x, rowY + kOptionRowHeight * s - 1.0f, w, 1.0f,
+                 kBorderDark[0], kBorderDark[1], kBorderDark[2], 0.6f);
+    }
+
+    const float by = dialogY + dialogH - 26.0f * s - 14.0f * s;
+    const float bw = 76.0f * s;
+    const float bh = 26.0f * s;
+    const float bx = dialogX + dialogW - bw - 16.0f * s;
+    const bool closePressed = pressedControl == 901 && mouseWasDown;
+    const bool closeHover = hovered(bx, by, bw, bh);
+    drawBevelButton(bx, by, bw, bh, closePressed, closeHover);
+    drawButtonText("Close", bx, by, bw, bh, closeHover);
+    (void)resIndex;
+}
+
+void Menu_L::renderLoadGameDialog(int width, int height) {
+    const float s = std::max(0.55f, std::min(1.35f, std::min(width / 1920.0f, height / 1080.0f)));
+    const float x = dialogX + 24.0f * s;
+    const float w = dialogW - 48.0f * s;
+    float y = dialogY + 46.0f * s;
+
+    drawText("Recorded demos", x, y, fontSmall, kDimBaseText[0], kDimBaseText[1], kDimBaseText[2], 0.95f);
+    y += 24.0f * s;
+
+    const std::vector<std::string> demos = collectDemos(gameDirectory);
+    if (demos.empty()) {
+        drawSunkenField(x, y, w, 120.0f * s, false);
+        const char* message = "No demos or saved games found.";
+        const float mw = textWidth(message, fontSmall);
+        drawText(message, x + (w - mw) * 0.5f, y + 42.0f * s, fontSmall,
+                 kControlText[0], kControlText[1], kControlText[2], 0.9f);
+        const char* hint = "Put .dem files into the game's demos/ folder.";
+        const float hw = textWidth(hint, fontTiny);
+        drawText(hint, x + (w - hw) * 0.5f, y + 68.0f * s, fontTiny,
+                 kDimBaseText[0], kDimBaseText[1], kDimBaseText[2], 0.8f);
+    } else {
+        const int visible = std::min<int>(6, static_cast<int>(demos.size()));
+        for (int i = 0; i < visible; ++i) {
+            const float iy = y + i * 28.0f * s;
+            const bool rowHover = hovered(x, iy, w, 26.0f * s);
+            if (rowHover) {
+                drawRect(x, iy, w, 26.0f * s,
+                         kButtonHover[0], kButtonHover[1], kButtonHover[2], 1.0f);
+                drawRect(x, iy, 2.0f * s, 26.0f * s,
+                         kSelectionBG[0], kSelectionBG[1], kSelectionBG[2], 1.0f);
+            } else {
+                drawRect(x, iy, w, 26.0f * s,
+                         kWindowBG[0], kWindowBG[1], kWindowBG[2], 0.85f);
+            }
+            drawText(demos[static_cast<size_t>(i)], x + 10.0f * s, iy + 6.0f * s, fontSmall,
+                     rowHover ? kBrightControl[0] : kControlText[0],
+                     rowHover ? kBrightControl[1] : kControlText[1],
+                     rowHover ? kBrightControl[2] : kControlText[2], 0.96f);
+        }
+    }
+
+    const float by = dialogY + dialogH - 26.0f * s - 14.0f * s;
+    const float bw = 76.0f * s;
+    const float bh = 26.0f * s;
+    const float bx = dialogX + dialogW - bw - 16.0f * s;
+    const bool closePressed = pressedControl == 901 && mouseWasDown;
+    const bool closeHover = hovered(bx, by, bw, bh);
+    drawBevelButton(bx, by, bw, bh, closePressed, closeHover);
+    drawButtonText("Close", bx, by, bw, bh, closeHover);
 }
 
 void Menu_L::renderHostDialog(int width, int height) {
@@ -904,9 +1093,10 @@ int Menu_L::hitMainControl(float mx, float my, int width, int height) const {
 int Menu_L::hitDialogControl(float mx, float my, int width, int height) const {
     const float s = std::max(0.55f, std::min(1.35f, std::min(width / 1920.0f, height / 1080.0f)));
     if (pointIn(mx, my, dialogX + dialogW - 28.0f * s, dialogY + 2.0f * s, 24.0f * s, 24.0f * s)) return 900;
-    if (dialog == DialogKind::Empty) {
+    if (dialog == DialogKind::Empty || dialog == DialogKind::Options ||
+        dialog == DialogKind::LoadGame) {
         const float bw = 76.0f * s;
-        const float bh = 24.0f * s;
+        const float bh = (dialog == DialogKind::Empty ? 24.0f : 26.0f) * s;
         const float bx = dialogX + dialogW - bw - 16.0f * s;
         const float by = dialogY + dialogH - bh - 14.0f * s;
         if (pointIn(mx, my, bx, by, bw, bh)) return 901;
@@ -975,8 +1165,8 @@ void Menu_L::activateMainControl(int control, int width, int height, MenuResult&
         switch (control) {
             case 0: openChapterSelector(width, height); break;
             case 1: openHostDialog(width, height); break;
-            case 2: openEmptyDialog("Load Game", width, height); break;
-            case 3: openEmptyDialog("Options", width, height); break;
+            case 2: dialog = DialogKind::LoadGame; dialogTitle = "LOAD GAME"; centerDialog(width, height); break;
+            case 3: dialog = DialogKind::Options; dialogTitle = "OPTIONS"; centerDialog(width, height); break;
             case 4: result = MenuResult::Quit; break;
             default: break;
         }
@@ -984,8 +1174,8 @@ void Menu_L::activateMainControl(int control, int width, int height, MenuResult&
         switch (control) {
             case 0: result = MenuResult::Resume; break;
             case 1: openChapterSelector(width, height); break;
-            case 2: openEmptyDialog("Load Game", width, height); break;
-            case 3: openEmptyDialog("Options", width, height); break;
+            case 2: dialog = DialogKind::LoadGame; dialogTitle = "LOAD GAME"; centerDialog(width, height); break;
+            case 3: dialog = DialogKind::Options; dialogTitle = "OPTIONS"; centerDialog(width, height); break;
             case 4: result = MenuResult::MainMenu; break;
             case 5: result = MenuResult::Quit; break;
             default: break;
@@ -997,7 +1187,8 @@ void Menu_L::activateDialogControl(int control, int width, int height, MenuResul
     (void)width; (void)height;
     menuPlaySound("ui/buttonclick.wav");
     if (control == 900) { closeDialog(); return; }
-    if (dialog == DialogKind::Empty && control == 901) { closeDialog(); return; }
+    if ((dialog == DialogKind::Empty || dialog == DialogKind::Options ||
+         dialog == DialogKind::LoadGame) && control == 901) { closeDialog(); return; }
     if (dialog == DialogKind::Host) {
         if (control == 923) {
             if (!chapters.empty()) {
@@ -1099,6 +1290,81 @@ bool Menu_L::handleDialogInput(GLFWwindow* window, int width, int height, MenuRe
     const int hit = hitDialogControl(mx, my, width, height);
     const float s = std::max(0.55f, std::min(1.35f, std::min(width / 1920.0f, height / 1080.0f)));
     const bool titleHit = pointIn((float)mx, (float)my, dialogX, dialogY, dialogW, 27.0f * s);
+
+    if (dialog == DialogKind::Options) {
+        const float s = std::max(0.55f, std::min(1.35f, std::min(width / 1920.0f, height / 1080.0f)));
+        const float x = dialogX + 24.0f * s;
+        const float w = dialogW - 48.0f * s;
+        const float y = dialogY + 46.0f * s;
+        const bool click = mouseDown && !mouseWasDown;
+        if (click) {
+            int resIndex = currentResolutionIndex();
+            for (int i = 0; i < 5; ++i) {
+                const float rowY = y + i * kOptionRowHeight * s;
+                const float bY = rowY + 5.0f * s;
+                const float bW = 24.0f * s;
+                const float bH = 24.0f * s;
+                const float leftX = x + w - 56.0f * s;
+                const float rightX = x + w - 26.0f * s;
+                const bool minus = pointIn((float)mx, (float)my, leftX, bY, bW, bH);
+                const bool plus = pointIn((float)mx, (float)my, rightX, bY, bW, bH);
+                const bool toggleHit = (i == 1 || i == 2) &&
+                    pointIn((float)mx, (float)my, leftX, bY, 54.0f * s, bH);
+                if (!minus && !plus && !toggleHit) continue;
+
+                if (i == 0) {
+                    resIndex = std::clamp(resIndex + (plus ? 1 : -1), 0, kResolutionCount - 1);
+                    gSettings.width = kResolutionPresets[resIndex][0];
+                    gSettings.height = kResolutionPresets[resIndex][1];
+                    applyResolution();
+                } else if (i == 1) {
+                    gSettings.fullscreen = !gSettings.fullscreen;
+                    if (ownerWindow) {
+                        if (gSettings.fullscreen) {
+                            if (GLFWmonitor* monitor = glfwGetPrimaryMonitor()) {
+                                if (const GLFWvidmode* mode = glfwGetVideoMode(monitor)) {
+                                    glfwSetWindowMonitor(ownerWindow, monitor, 0, 0,
+                                                         mode->width, mode->height, mode->refreshRate);
+                                }
+                            }
+                        } else {
+                            glfwSetWindowMonitor(ownerWindow, nullptr, 120, 90,
+                                                 gSettings.width, gSettings.height, 0);
+                            glfwSetWindowSize(ownerWindow, gSettings.width, gSettings.height);
+                        }
+                    }
+                } else if (i == 2) {
+                    gSettings.postProcess = !gSettings.postProcess;
+                } else if (i == 3) {
+                    gSettings.mouseSensitivity = std::clamp(
+                        gSettings.mouseSensitivity + (plus ? 0.25f : -0.25f), 0.25f, 5.0f);
+                } else if (i == 4) {
+                    gSettings.masterVolume = std::clamp(
+                        gSettings.masterVolume + (plus ? 0.1f : -0.1f), 0.0f, 1.0f);
+                    Sound_L::Get().setMasterVolume(gSettings.masterVolume);
+                }
+                persistSettings();
+                return true;
+            }
+        }
+    }
+
+    if (dialog == DialogKind::LoadGame) {
+        const float s = std::max(0.55f, std::min(1.35f, std::min(width / 1920.0f, height / 1080.0f)));
+        const float x = dialogX + 24.0f * s;
+        const float w = dialogW - 48.0f * s;
+        const float y = dialogY + 46.0f * s + 24.0f * s;
+        const std::vector<std::string> demos = collectDemos(gameDirectory);
+        if (mouseDown && !mouseWasDown) {
+            for (int i = 0; i < std::min<int>(6, static_cast<int>(demos.size())); ++i) {
+                if (pointIn((float)mx, (float)my, x, y + i * 28.0f * s, w, 26.0f * s)) {
+                    GameConsole_RequestDemo(demos[static_cast<size_t>(i)]);
+                    closeDialog();
+                    return true;
+                }
+            }
+        }
+    }
 
     if (dialog == DialogKind::Host) {
         const bool ctrl = glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_RIGHT_CONTROL) == GLFW_PRESS;
@@ -1459,6 +1725,18 @@ MenuResult Menu_L::runMainMenu(GLFWwindow* window) {
         if (result == MenuResult::None && GameConsole_TakeMapCommand(forcedMap)) {
             selectedMapName = forcedMap;
             result = MenuResult::StartGame;
+        }
+
+        std::string requestedDemo;
+        if (result == MenuResult::None && GameConsole_TakeDemoRequest(requestedDemo)) {
+            std::string error;
+            if (DemoPlayer::prepare(requestedDemo, gameDirectory, error)) {
+                Multiplayer_L::shutdown();
+                selectedMapName = DemoPlayer::mapName();
+                result = MenuResult::StartGame;
+            } else {
+                ConsolePushLine("Error: " + error, true);
+            }
         }
 
         std::string forcedDemo;

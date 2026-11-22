@@ -56,6 +56,7 @@
 #include "demo_player.h"
 #include "fs_compat.h"
 #include "platform.h"
+#include "settings.h"
 #include "text_render.h"
 
 static void ShowEngineError(const std::string& message) {
@@ -68,6 +69,8 @@ extern int windowHeight;
 static void DrawLoadingScreen(GLFWwindow* window, const std::string& mapName,
                               const std::string& detail, float progress) {
     if (!window) return;
+    static double loadingStarted = 0.0;
+    if (progress <= 0.031f || loadingStarted == 0.0) loadingStarted = glfwGetTime();
     const int w = std::max(1, windowWidth);
     const int h = std::max(1, windowHeight);
     const float clamped = std::clamp(progress, 0.0f, 1.0f);
@@ -236,6 +239,15 @@ static void DrawLoadingScreen(GLFWwindow* window, const std::string& mapName,
     glPopAttrib();
     glfwSwapBuffers(window);
     glfwPollEvents();
+
+    // Keep the loading screen visible for a moment even on very fast loads.
+    if (progress >= 0.97f && loadingStarted > 0.0) {
+        while (glfwGetTime() - loadingStarted < 0.6 && !glfwWindowShouldClose(window)) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            glfwPollEvents();
+        }
+        loadingStarted = 0.0;
+    }
 }
 
 static std::filesystem::path executableDirectory() {
@@ -931,6 +943,13 @@ int main(int argc, char* argv[]) {
         commandArgs.reserve(static_cast<size_t>(argc));
         for (int i = 0; i < argc; ++i) commandArgs.emplace_back(argv[i] ? argv[i] : "");
     }
+    {
+        const std::filesystem::path exeDir = executableDirectory();
+        if (!exeDir.empty()) LoadSettings(FsCompat::toUtf8(exeDir / "sauce.cfg"));
+        windowWidth = gSettings.width;
+        windowHeight = gSettings.height;
+    }
+
     for (size_t i = 1; i < commandArgs.size(); ++i) {
         const std::string& arg = commandArgs[i];
         if (arg == "-game" && i + 1 < commandArgs.size()) { gameDir = commandArgs[++i]; gamePathProvided = true; }
@@ -982,6 +1001,15 @@ int main(int argc, char* argv[]) {
 
     glfwMakeContextCurrent(window);
     glfwFocusWindow(window);
+    if (gSettings.fullscreen) {
+        if (GLFWmonitor* monitor = glfwGetPrimaryMonitor()) {
+            if (const GLFWvidmode* mode = glfwGetVideoMode(monitor)) {
+                glfwSetWindowMonitor(window, monitor, 0, 0, mode->width, mode->height, mode->refreshRate);
+                windowWidth = mode->width;
+                windowHeight = mode->height;
+            }
+        }
+    }
     {
         const char* rendererName = reinterpret_cast<const char*>(glGetString(GL_RENDERER));
         const std::string renderer = rendererName ? rendererName : "";
@@ -1018,6 +1046,7 @@ int main(int argc, char* argv[]) {
     menuTextureParser.init(gameDir);
     parseGameInfo(&menuTextureParser);
     Sound_L::Get().init(gameDir, &menuTextureParser);
+    Sound_L::Get().setMasterVolume(gSettings.masterVolume);
 
     Menu_L menu;
     menu.init(window, &menuTextureParser, gameDir, gameTitle);
@@ -1198,6 +1227,7 @@ int main(int argc, char* argv[]) {
             Light_L lightManager;
             lightManager.disableLighting = disableLighting;
             Sound_L::Get().init(gameDir, &materialParser);
+            Sound_L::Get().setMasterVolume(gSettings.masterVolume);
             StepSound_L stepSound;
             stepSound.init(gameDir, &materialParser);
 
@@ -1623,6 +1653,7 @@ int main(int argc, char* argv[]) {
 
                 if (changelevelCooldown > 0.0f) changelevelCooldown -= dt;
 
+                postProcess.setEnabled(gSettings.postProcess && !postProcessDisabled);
                 const bool postProcessActive = postProcess.beginScene(windowWidth, windowHeight);
                 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -1662,8 +1693,8 @@ int main(int argc, char* argv[]) {
                 double ncx = curX, ncy = curY;
                 glfwGetCursorPos(window, &ncx, &ncy);
                 if (!demoMode && !consoleOpen && !player.dead) {
-                    player.yaw += static_cast<float>(ncx - curX) * 0.1f;
-                    player.pitch += static_cast<float>(ncy - curY) * 0.1f;
+                    player.yaw += static_cast<float>(ncx - curX) * 0.1f * gSettings.mouseSensitivity;
+                    player.pitch += static_cast<float>(ncy - curY) * 0.1f * gSettings.mouseSensitivity;
                     curX = ncx;
                     curY = ncy;
                 }

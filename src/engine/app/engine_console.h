@@ -42,6 +42,8 @@ void GameConsole_SetInput(const std::string& value);
 std::vector<std::string> GameConsole_GetSuggestions();
 bool GameConsole_TakeMapCommand(std::string& outMap);
 bool GameConsole_TakeDemoCommand(std::string& outDemo);
+void GameConsole_RequestDemo(const std::string& demoName);
+bool GameConsole_TakeDemoRequest(std::string& outDemo);
 bool GameConsole_PollPassthrough();
 bool GameConsole_TakeJoinMapRequest(std::string& outMap);
 void GameConsole_HandleMenuToggle(GLFWwindow* window);

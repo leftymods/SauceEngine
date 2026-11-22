@@ -51,7 +51,7 @@ public:
     void clearHostGameRequest() { hostGameRequested_ = false; }
 
 private:
-    enum class DialogKind { None, Chapters, Empty, Host };
+    enum class DialogKind { None, Chapters, Empty, Host, Options, LoadGame };
 
     struct TextureRef {
         unsigned int id = 0;
@@ -154,6 +154,10 @@ private:
     bool fileExists(const std::string& relativePath) const;
     void scanTextureFiles(const std::string& keyword, std::vector<std::string>& outCandidates) const;
     void scanDiskTextureFiles(const std::string& keyword, std::vector<std::string>& outCandidates) const;
+
+    void renderOptionsDialog(int width, int height);
+    void renderLoadGameDialog(int width, int height);
+    void applyResolution();
 
     bool initFonts();
     void destroyFonts();
