@@ -1925,18 +1925,34 @@ int main(int argc, char* argv[]) {
                     if(propManager.traceRay(player.pos,{0,-1,0},dProp,nProp) && dProp<dFloor){dFloor=dProp;nFloor=nProp;floorHit=true;}
                     float dEnt=999999.0f; Vec3 nEnt;
                     if(entManager.traceRay(player.pos,{0,-1,0},dEnt,nEnt) && dEnt<dFloor){dFloor=dEnt;nFloor=nEnt;floorHit=true;}
-                    // Always land on the floor when the feet are near it;
-                    // step up small ledges only while actually moving.
+                    // Snap the player to the floor when the feet have reached
+                    // it while falling, and step up small ledges while moving
+                    // on the ground. Large vertical offsets only count as a
+                    // landing when the player was in the air.
                     const float snapUp = player.height - dFloor;
-                    const bool nearFloor = floorHit &&
-                        dFloor >= player.height - 0.1f && dFloor <= player.height + 0.1f;
-                    const bool smallStep = player.onGround && wishDir.length() > 0.001f &&
-                        snapUp > 0.05f && snapUp <= 18.0f;
-                    if (floorHit && player.velocity.y <= 0.0f && (nearFloor || smallStep)) {
-                        player.pos.y += snapUp;
-                        player.velocity.y = 0;
-                        player.onGround = true;
-                        currentFloorTex = mapParser.getHitTextureName(player.pos, {0,-1,0});
+                    const bool feetAtFloor = floorHit && dFloor <= player.height + 0.1f;
+                    if (feetAtFloor && player.velocity.y <= 0.0f) {
+                        if (!player.onGround) {
+                            // Landing from a fall — always snap to the floor.
+                            player.pos.y += snapUp;
+                            player.velocity.y = 0;
+                            player.onGround = true;
+                            currentFloorTex = mapParser.getHitTextureName(player.pos, {0,-1,0});
+                        } else if (snapUp > 0.05f && snapUp <= 18.0f) {
+                            // Keep the player on the floor / step small ledges.
+                            player.pos.y += snapUp;
+                            player.velocity.y = 0;
+                        } else if (snapUp > 18.0f && player.velocity.y < -10.0f) {
+                            // Falling through the floor while still marked as
+                            // grounded (e.g. after a large frame) — recover.
+                            player.pos.y += snapUp;
+                            player.velocity.y = 0;
+                            player.onGround = true;
+                            currentFloorTex = mapParser.getHitTextureName(player.pos, {0,-1,0});
+                        } else {
+                            player.onGround = true;
+                            currentFloorTex = mapParser.getHitTextureName(player.pos, {0,-1,0});
+                        }
                     } else if (!floorHit || dFloor > player.height + 0.1f) {
                         player.onGround = false;
                     }
