@@ -1234,6 +1234,40 @@ int Menu_L::hitDialogControl(float mx, float my, int width, int height) const {
         const float startX = closeX - bw - Style::kSpace3 * s;
         if (pointIn(mx, my, startX, by, bw, bh)) return 923;
         if (pointIn(mx, my, closeX, by, bw, bh)) return 924;
+    } else if (dialog == DialogKind::Chapters) {
+        const float bodyX = dialogX + 18.0f * s;
+        const float bodyY = dialogY + Style::kContentTop * s;
+        const float gap = 14.0f * s;
+        const int pageSize = chapters.size() <= 1 ? 1 : (chapters.size() == 2 ? 2 : 3);
+        const int visible = std::min(pageSize, static_cast<int>(chapters.size() - std::min(chapterPageStart, chapters.size())));
+
+        if (!chapters.empty()) {
+            const float innerW = dialogW - 36.0f * s;
+            const float cardW = std::min(218.0f * s, (innerW - gap * 2.0f) / 3.0f);
+            const float imageH = cardW * 0.56f;
+            const float textBlockH = 42.0f * s;
+            const float cardTop = bodyY + 2.0f * s;
+            for (int slot = 0; slot < visible; ++slot) {
+                const float x = bodyX + slot * (cardW + gap);
+                if (pointIn(mx, my, x, cardTop + textBlockH, cardW, imageH))
+                    return 100 + slot;
+            }
+
+            const float navY = cardTop + imageH + 66.0f * s;
+            const float arrowW = 28.0f * s;
+            const float arrowH = 24.0f * s;
+            if (pointIn(mx, my, bodyX, navY - 2.0f * s, arrowW, arrowH)) return 110;
+            if (pointIn(mx, my, bodyX + innerW - arrowW, navY - 2.0f * s, arrowW, arrowH)) return 111;
+        }
+
+        const float bh = Style::kButtonHeight * s;
+        const float startW = Style::kButtonWidth * s;
+        const float cancelW = Style::kButtonWidth * s;
+        const float by = dialogY + dialogH - bh - 12.0f * s;
+        const float cancelX = dialogX + dialogW - cancelW - Style::kDialogMargin * s;
+        const float startX = cancelX - startW - Style::kSpace3 * s;
+        if (pointIn(mx, my, startX, by, startW, bh)) return 104;
+        if (pointIn(mx, my, cancelX, by, cancelW, bh)) return 103;
     }
     return -1;
 }
@@ -1550,32 +1584,9 @@ bool Menu_L::handleDialogInput(GLFWwindow* window, int width, int height, MenuRe
     }
 
     if (mouseDown && !mouseWasDown) {
-        if (hit == 900 || hit == 901 || hit == 923 || hit == 924 || (hit >= 930 && hit < 960)) pressedControl = hit;
-        else if (dialog == DialogKind::Chapters) {
-            const float bodyX = dialogX + 18.0f * s;
-            const float innerW = dialogW - 36.0f * s;
-            const float gap = 14.0f * s;
-            const float cardW = std::min(218.0f * s, (innerW - gap * 2.0f) / 3.0f);
-            const float imageH = cardW * 0.56f;
-            const float cardTop = dialogY + 47.0f * s;
-            for (int slot = 0; slot < 3; ++slot) {
-                const float x = bodyX + slot * (cardW + gap);
-                if (pointIn((float)mx, (float)my, x, cardTop + 34.0f * s, cardW, imageH)) { pressedControl = 100 + slot; break; }
-            }
-            if (pressedControl == -1) {
-                if (pointIn((float)mx, (float)my, bodyX, cardTop + imageH + 66.0f * s, 30.0f * s, 28.0f * s)) pressedControl = 110;
-                else if (pointIn((float)mx, (float)my, bodyX + innerW - 30.0f * s, cardTop + imageH + 66.0f * s, 30.0f * s, 28.0f * s)) pressedControl = 111;
-                else {
-                    const float bh = 24.0f * s;
-                    const float startW = 88.0f * s;
-                    const float cancelW = 74.0f * s;
-                    const float by = dialogY + dialogH - bh - 15.0f * s;
-                    const float cancelX = dialogX + dialogW - cancelW - 15.0f * s;
-                    const float startX = cancelX - startW - 8.0f * s;
-                    if (pointIn((float)mx, (float)my, startX, by, startW, bh)) pressedControl = 104;
-                    else if (pointIn((float)mx, (float)my, cancelX, by, cancelW, bh)) pressedControl = 103;
-                }
-            }
+        if (hit == 900 || hit == 901 || hit == 923 || hit == 924 || (hit >= 930 && hit < 960) ||
+            hit == 103 || hit == 104 || hit == 110 || hit == 111 || (hit >= 100 && hit <= 102)) {
+            pressedControl = hit;
         } else if (dialog == DialogKind::Host && hit != -1) {
             pressedControl = hit;
         } else if (titleHit) {

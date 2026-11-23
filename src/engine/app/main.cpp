@@ -1651,7 +1651,7 @@ int main(int argc, char* argv[]) {
 
                 double ncx = curX, ncy = curY;
                 glfwGetCursorPos(window, &ncx, &ncy);
-                if (!demoMode && !consoleOpen && !player.dead) {
+                if (inGameplay && !demoMode && !consoleOpen && !player.dead) {
                     // Mouse look is computed relative to the window center and the
                     // pointer is warped back every frame. This keeps the camera
                     // stable on compositors (like WSLg) where GLFW's virtual
