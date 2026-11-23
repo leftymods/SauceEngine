@@ -544,3 +544,150 @@ pub unsafe extern "C" fn sauce_trace_ray(
         None => 0,
     }
 }
+
+// ---------------------------------------------------------------------------
+// Static-prop broadphase. The narrow phase stays in C++ so the exact existing
+// ray-vs-hull result (and normals) do not change.
+// ---------------------------------------------------------------------------
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SaucePropBounds {
+    pub min: SauceVec3,
+    pub max: SauceVec3,
+}
+
+pub struct PropIndex {
+    items: Vec<(Aabb, usize)>,
+    nodes: Vec<BvhNode>,
+}
+
+fn build_prop_recursive(
+    items: &mut [(Aabb, usize)],
+    nodes: &mut Vec<BvhNode>,
+    global_start: usize,
+    depth: usize,
+) -> usize {
+    let bounds = items.iter().fold(Aabb::empty(), |b, item| b.merge(item.0));
+    let node_idx = nodes.len();
+    nodes.push(BvhNode {
+        bounds,
+        left: -1,
+        right: -1,
+        tri_start: global_start,
+        tri_count: items.len(),
+        is_leaf: true,
+    });
+
+    if items.len() <= 4 || depth >= 24 {
+        return node_idx;
+    }
+
+    let extent = bounds.extent();
+    let axis = if extent.x >= extent.y && extent.x >= extent.z {
+        0
+    } else if extent.y >= extent.z {
+        1
+    } else {
+        2
+    };
+    items.sort_by(|a, b| {
+        let ca = (a.0.min.get(axis) + a.0.max.get(axis)) * 0.5;
+        let cb = (b.0.min.get(axis) + b.0.max.get(axis)) * 0.5;
+        ca.partial_cmp(&cb).unwrap_or(std::cmp::Ordering::Equal)
+    });
+    let mid = items.len() / 2;
+    let (left_items, right_items) = items.split_at_mut(mid);
+    let left = build_prop_recursive(left_items, nodes, global_start, depth + 1);
+    let right = build_prop_recursive(right_items, nodes, global_start + mid, depth + 1);
+    nodes[node_idx].is_leaf = false;
+    nodes[node_idx].left = left as i32;
+    nodes[node_idx].right = right as i32;
+    node_idx
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn sauce_props_init(bounds: *const SaucePropBounds, count: usize) -> *mut PropIndex {
+    if bounds.is_null() || count == 0 {
+        return std::ptr::null_mut();
+    }
+    let source = slice_from::<SaucePropBounds>(bounds, count);
+    let mut items: Vec<(Aabb, usize)> = source
+        .iter()
+        .enumerate()
+        .map(|(i, b)| {
+            (
+                Aabb {
+                    min: Vec3::from_sauce(b.min),
+                    max: Vec3::from_sauce(b.max),
+                },
+                i,
+            )
+        })
+        .filter(|(aabb, _)| aabb.min.x <= aabb.max.x && aabb.min.y <= aabb.max.y && aabb.min.z <= aabb.max.z)
+        .collect();
+    if items.is_empty() {
+        return std::ptr::null_mut();
+    }
+    let mut nodes = Vec::new();
+    build_prop_recursive(&mut items, &mut nodes, 0, 0);
+    Box::into_raw(Box::new(PropIndex { items, nodes }))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn sauce_props_shutdown(index: *mut PropIndex) {
+    if !index.is_null() {
+        drop(Box::from_raw(index));
+    }
+}
+
+/// Fills `out` with up to `capacity` candidate instance indices, nearest AABB
+/// first. Returns the number written (or the number found when growing the
+/// buffer is needed: if the return value equals capacity, more may exist).
+#[no_mangle]
+pub unsafe extern "C" fn sauce_props_query(
+    index: *const PropIndex,
+    orig: *const SauceVec3,
+    dir: *const SauceVec3,
+    max_t: f32,
+    out: *mut i32,
+    capacity: usize,
+) -> usize {
+    if index.is_null() || orig.is_null() || dir.is_null() || out.is_null() || capacity == 0 {
+        return 0;
+    }
+    let index = &*index;
+    let orig = Vec3::from_sauce(*orig);
+    let dir = Vec3::from_sauce(*dir);
+    let inv_dir = Vec3::new(
+        if dir.x.abs() > 1e-8 { 1.0 / dir.x } else { 0.0 },
+        if dir.y.abs() > 1e-8 { 1.0 / dir.y } else { 0.0 },
+        if dir.z.abs() > 1e-8 { 1.0 / dir.z } else { 0.0 },
+    );
+    let dir_zero = [dir.x.abs() <= 1e-8, dir.y.abs() <= 1e-8, dir.z.abs() <= 1e-8];
+
+    let mut hits: Vec<(f32, usize)> = Vec::new();
+    let mut stack = vec![0usize];
+    while let Some(node_idx) = stack.pop() {
+        let node = index.nodes[node_idx];
+        if node.bounds.ray_entry_t(orig, inv_dir, dir_zero, max_t).is_none() {
+            continue;
+        }
+        if node.is_leaf {
+            for item in &index.items[node.tri_start..node.tri_start + node.tri_count] {
+                if let Some(t) = item.0.ray_entry_t(orig, inv_dir, dir_zero, max_t) {
+                    hits.push((t, item.1));
+                }
+            }
+        } else {
+            stack.push(node.left as usize);
+            stack.push(node.right as usize);
+        }
+    }
+    hits.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+    let count = hits.len().min(capacity);
+    for i in 0..count {
+        *out.add(i) = hits[i].1 as i32;
+    }
+    hits.len()
+}

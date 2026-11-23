@@ -74,10 +74,10 @@ public:
     void buildLightmaps();
     void buildModelLightmapVolume();
     void renderWorld();
-    void renderTransparentWorld();
+    void renderTransparentWorld(const ViewCullParams* cull = nullptr);
     void initRustTrace();
     void renderFlashlight(const Vec3& origin, const Vec3& direction, float range = 1200.0f, float coneDegrees = 42.0f);
-    void renderCubemapReflections(const Vec3& viewerPosition, const Cubemap_L& cubemaps);
+    void renderCubemapReflections(const Vec3& viewerPosition, const Cubemap_L& cubemaps, const ViewCullParams* cull = nullptr);
     void renderLightmaps();
     float sampleLightmapBrightness(const Vec3& worldPos) const;
     Vec3 sampleLightmapColor(const Vec3& worldPos) const;

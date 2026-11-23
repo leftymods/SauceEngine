@@ -57,6 +57,7 @@
 #include "fs_compat.h"
 #include "platform.h"
 #include "settings.h"
+#include "perfstats.h"
 #include "text_render.h"
 #include "style.h"
 
@@ -301,6 +302,9 @@ bool disableTextures = false;
 bool disableLighting = false;
 bool postProcessDisabled = false;
 bool lowPerfMode = false;
+bool wireframeMode = false;
+static float preLowPerfScale = 1.0f;
+static bool preLowPerfShadows = true;
 int windowWidth = 1920;
 int windowHeight = 1080;
 
@@ -803,12 +807,25 @@ static void RenderProjectedModelShadow(const std::vector<Vec3>& vertices, float 
     RenderShadowMaskLayer(vertices, opacity);
 }
 
-static void RenderStaticPropBlobShadows(PropStatic_L& props, BSP_L& map) {
+// Shadows are only noticeable nearby; skip the tracing work for props outside
+// the view or beyond a short radius. This also avoids building their cached
+// projected geometry on the first frame when they are not visible.
+static bool ShadowWorthDrawing(const Vec3& viewer, const ViewCullParams* cull, const Vec3& center, float radius = 160.0f) {
+    const bool visible = (center - viewer).length() <= 2000.0f + radius &&
+                         (!cull || sphereInView(*cull, center, radius));
+    if (visible) ++gPerfStats.shadowsDrawn;
+    else ++gPerfStats.shadowsSkipped;
+    return visible;
+}
+
+static void RenderStaticPropBlobShadows(PropStatic_L& props, BSP_L& map,
+                                        const Vec3& viewer, const ViewCullParams* cull) {
     std::vector<Vec3> softOuter;
     std::vector<Vec3> softMiddle;
     std::vector<Vec3> softInner;
     std::vector<Vec3> coreVertices;
     for (StaticPropInstance& instance : props.instances) {
+        if (!ShadowWorthDrawing(viewer, cull, instance.origin, 160.0f * std::max(0.25f, instance.scale))) continue;
         if (!instance.shadowCached) {
             if (instance.modelIdx < props.models.size() && props.models[instance.modelIdx] && props.models[instance.modelIdx]->loaded) {
                 instance.shadowCached = true;
@@ -830,11 +847,13 @@ static void RenderStaticPropBlobShadows(PropStatic_L& props, BSP_L& map) {
     RenderShadowMaskLayer(coreVertices, 0.24f);
 }
 
-static void RenderEntityBlobShadows(EntityManager& entities, BSP_L& map) {
+static void RenderEntityBlobShadows(EntityManager& entities, BSP_L& map,
+                                    const Vec3& viewer, const ViewCullParams* cull = nullptr) {
     std::vector<Vec3> shadowVertices;
     float opacity = 0.0f;
     for (Entity* entity : entities.entities) {
         if (!entity || entity->shouldDestroy) continue;
+        if (!ShadowWorthDrawing(viewer, cull, entity->pos, 160.0f)) continue;
         if (auto* npc = dynamic_cast<NPC_L*>(entity)) {
             if (!npc->isAlive()) continue;
             const MDL_L* shadowModel = npc->instanceModel ? npc->instanceModel.get() : npc->model;
@@ -875,6 +894,39 @@ static void RenderEntityBlobShadows(EntityManager& entities, BSP_L& map) {
 }
 
 
+// Minimal uncompressed TGA screenshot (no extra image dependency). The
+// framebuffer is bottom-up, which matches an unflipped TGA's default origin.
+static void SaveScreenshot() {
+    const int w = windowWidth;
+    const int h = windowHeight;
+    if (w <= 0 || h <= 0) return;
+    std::vector<unsigned char> pixels(static_cast<size_t>(w) * h * 3);
+    glReadPixels(0, 0, w, h, GL_RGB, GL_UNSIGNED_BYTE, pixels.data());
+
+    const auto stamp = std::chrono::system_clock::now().time_since_epoch().count();
+    const std::filesystem::path dir = executableDirectory() / "screenshots";
+    std::error_code ec;
+    std::filesystem::create_directories(dir, ec);
+    const std::filesystem::path file = dir / ("sauce_" + std::to_string(stamp) + ".tga");
+    std::ofstream out(file, std::ios::binary | std::ios::trunc);
+    if (!out) return;
+    unsigned char header[18] = {0};
+    header[2] = 2;  // uncompressed true-color
+    header[12] = static_cast<unsigned char>(w & 0xff);
+    header[13] = static_cast<unsigned char>((w >> 8) & 0xff);
+    header[14] = static_cast<unsigned char>(h & 0xff);
+    header[15] = static_cast<unsigned char>((h >> 8) & 0xff);
+    header[16] = 24;
+    header[17] = 0x20; // origin bottom-left
+    out.write(reinterpret_cast<const char*>(header), sizeof(header));
+    // TGA stores BGR, GL gives RGB.
+    for (size_t i = 0; i < pixels.size(); i += 3) {
+        const unsigned char rgb[3] = {pixels[i + 2], pixels[i + 1], pixels[i]};
+        out.write(reinterpret_cast<const char*>(rgb), 3);
+    }
+    std::cout << "[Screenshot] " << FsCompat::toUtf8(file) << std::endl;
+}
+
 int main(int argc, char* argv[]) {
     std::signal(SIGSEGV, CrashHandler);
     std::signal(SIGABRT, CrashHandler);
@@ -907,10 +959,6 @@ int main(int argc, char* argv[]) {
         windowWidth = gSettings.width;
         windowHeight = gSettings.height;
         if (std::getenv("SAUCE_LOWPERF")) lowPerfMode = true;
-        if (lowPerfMode) {
-            gSettings.renderScale = std::min(gSettings.renderScale, 0.5f);
-            gSettings.shadows = false;
-        }
     }
 
     for (size_t i = 1; i < commandArgs.size(); ++i) {
@@ -930,6 +978,23 @@ int main(int argc, char* argv[]) {
         else if (arg == "-renderscale" && i + 1 < commandArgs.size()) {
             try { gSettings.renderScale = std::clamp(std::stof(commandArgs[++i]), 0.25f, 1.0f); } catch (...) {}
         }
+        else if (arg == "-autoscale") gSettings.autoRenderScale = true;
+        else if (arg == "-targetfps" && i + 1 < commandArgs.size()) {
+            try { gSettings.targetFps = std::clamp(std::stoi(commandArgs[++i]), 15, 240); } catch (...) {}
+        }
+        else if (arg == "-fpslimit" && i + 1 < commandArgs.size()) {
+            try {
+                const int limit = std::stoi(commandArgs[++i]);
+                gSettings.fpsLimit = limit < 15 ? 0 : std::clamp(limit, 15, 360);
+            } catch (...) {}
+        }
+        else if (arg == "-stats") gSettings.showStats = true;
+    }
+    preLowPerfScale = gSettings.renderScale;
+    preLowPerfShadows = gSettings.shadows;
+    if (lowPerfMode) {
+        gSettings.renderScale = std::min(gSettings.renderScale, 0.5f);
+        gSettings.shadows = false;
     }
     {
         std::error_code pathError;
@@ -987,13 +1052,14 @@ int main(int argc, char* argv[]) {
         std::cout << "[GL] Renderer: " << (renderer.empty() ? "unknown" : renderer) << std::endl;
         if (softwareRenderer && !postProcessDisabled) {
             std::cout << "[GL] Software renderer detected, disabling post processing. "
-                         "Use -post to force it back on." << std::endl;
+                         "Use -nopost to keep it off (default on software renderers)." << std::endl;
             postProcessDisabled = true;
         }
     }
     glfwSetFramebufferSizeCallback(window, framebufferSizeCallback);
     glfwSetKeyCallback(window, GameConsoleKeyCallback);
     glfwSetCharCallback(window, GameConsoleCharCallback);
+    glfwSetScrollCallback(window, GameConsoleScrollCallback);
 
     {
         int fbW = 0, fbH = 0;
@@ -1023,6 +1089,10 @@ int main(int argc, char* argv[]) {
     menu.setPlayerNick(Multiplayer_L::steamNick());
     glfwSetWindowTitle(window, gameTitle.c_str());
 
+    {
+        const std::filesystem::path exeDir = executableDirectory();
+        if (!exeDir.empty()) GameConsole_LoadBinds(FsCompat::toUtf8(exeDir / "binds.cfg"));
+    }
     consolePassthrough = [](const std::string& command) -> bool {
         std::string trimmed = TrimCommand(command);
         std::string lowered = LowerCommand(trimmed);
@@ -1418,15 +1488,60 @@ int main(int argc, char* argv[]) {
             bool noclip = false;
             bool flashlightEnabled = false;
             bool flashlightWasDown = false;
+            bool screenshotWasDown = false;
+            bool statsKeyWasDown = false;
+            bool lowPerfKeyWasDown = false;
+            bool wireframeKeyWasDown = false;
             constexpr float standingHeight = 64.0f;
             constexpr float crouchHeight = 46.0f;
 
+            // Shared frame timing, used by the HUD, adaptive resolution and
+            // the console log so they all report the same number.
+            static float currentFps = 0.0f;
+            static double perfWindowStart = 0.0;
+            static int perfWindowFrames = 0;
+            static double lastPacedFrame = 0.0;
+
             while (!glfwWindowShouldClose(window)) {
+                // Optional frame cap: leaves GPU time for the other app on
+                // this machine instead of rendering frames nobody sees.
+                if (gSettings.fpsLimit > 0) {
+                    const double period = 1.0 / static_cast<double>(gSettings.fpsLimit);
+                    if (lastPacedFrame > 0.0) {
+                        const double elapsed = glfwGetTime() - lastPacedFrame;
+                        if (elapsed < period) {
+                            std::this_thread::sleep_for(std::chrono::microseconds(
+                                static_cast<int>((period - elapsed) * 1000000.0)));
+                        }
+                    }
+                    lastPacedFrame = glfwGetTime();
+                }
+
                 double curTime = glfwGetTime();
                 float dt = static_cast<float>(curTime - lastTime);
                 if (dt > 0.1f) dt = 0.1f;
                 if (dt < 0.0f) dt = 0.0f;
                 lastTime = curTime;
+
+                // Rolling FPS estimate + adaptive render scale. Scale is
+                // nudged slowly so the picture does not pump every frame.
+                if (perfWindowStart == 0.0) perfWindowStart = curTime;
+                ++perfWindowFrames;
+                if (curTime - perfWindowStart >= 0.5) {
+                    const float measured = static_cast<float>(perfWindowFrames / (curTime - perfWindowStart));
+                    currentFps = currentFps > 0.0f ? currentFps * 0.55f + measured * 0.45f : measured;
+                    perfWindowStart = curTime;
+                    perfWindowFrames = 0;
+                    if (gSettings.autoRenderScale && currentFps > 0.0f) {
+                        const float target = static_cast<float>(gSettings.targetFps);
+                        if (currentFps < target * 0.92f && gSettings.renderScale > 0.25f) {
+                            gSettings.renderScale = std::max(0.25f, gSettings.renderScale - 0.05f);
+                        } else if (currentFps > target * 1.12f && gSettings.renderScale < 1.0f) {
+                            gSettings.renderScale = std::min(1.0f, gSettings.renderScale + 0.05f);
+                        }
+                    }
+                }
+                gPerfStats.reset();
 
                 glfwPollEvents();
                 if (!DemoPlayer::active()) GameConsoleProcessBinds(window);
@@ -1507,6 +1622,67 @@ int main(int argc, char* argv[]) {
                         player.velocity = Vec3{0, 0, 0};
                         player.onGround = false;
                         std::cout << "[Console] noclip " << (noclip ? "ON" : "OFF") << std::endl;
+                    } else if (lowCmd.rfind("renderscale", 0) == 0) {
+                        std::istringstream iss(cmd);
+                        std::string verb, value;
+                        if (!(iss >> verb >> value)) {
+                            std::cout << "[Console] renderscale = " << gSettings.renderScale << std::endl;
+                        } else {
+                            try {
+                                gSettings.renderScale = std::clamp(std::stof(value), 0.25f, 1.0f);
+                                std::cout << "[Console] renderscale " << gSettings.renderScale << std::endl;
+                            } catch (...) {
+                                std::cout << "Error: renderscale <0.25 - 1.0>" << std::endl;
+                            }
+                        }
+                    } else if (lowCmd.rfind("autoscale", 0) == 0) {
+                        std::istringstream iss(cmd);
+                        std::string verb, value;
+                        if (iss >> verb >> value) gSettings.autoRenderScale = value == "1" || value == "on";
+                        else gSettings.autoRenderScale = !gSettings.autoRenderScale;
+                        std::cout << "[Console] autoscale " << (gSettings.autoRenderScale ? "ON" : "OFF") << std::endl;
+                    } else if (lowCmd.rfind("targetfps", 0) == 0) {
+                        std::istringstream iss(cmd);
+                        std::string verb, value;
+                        if (iss >> verb >> value) {
+                            try { gSettings.targetFps = std::clamp(std::stoi(value), 15, 240); } catch (...) {}
+                        }
+                        std::cout << "[Console] targetfps " << gSettings.targetFps << std::endl;
+                    } else if (lowCmd.rfind("fpslimit", 0) == 0) {
+                        std::istringstream iss(cmd);
+                        std::string verb, value;
+                        if (iss >> verb >> value) {
+                            try {
+                                const int v = std::stoi(value);
+                                gSettings.fpsLimit = v < 15 ? 0 : std::clamp(v, 15, 360);
+                            } catch (...) {}
+                        }
+                        std::cout << "[Console] fpslimit "
+                                  << (gSettings.fpsLimit ? std::to_string(gSettings.fpsLimit) : std::string("Unlimited"))
+                                  << std::endl;
+                    } else if (lowCmd.rfind("stats", 0) == 0) {
+                        std::istringstream iss(cmd);
+                        std::string verb, value;
+                        if (iss >> verb >> value) gSettings.showStats = value == "1" || value == "on";
+                        else gSettings.showStats = !gSettings.showStats;
+                        std::cout << "[Console] stats " << (gSettings.showStats ? "ON" : "OFF") << std::endl;
+                    } else if (lowCmd == "screenshot") {
+                        SaveScreenshot();
+                    } else if (lowCmd == "lowperf") {
+                        lowPerfMode = !lowPerfMode;
+                        if (lowPerfMode) {
+                            preLowPerfScale = gSettings.renderScale;
+                            preLowPerfShadows = gSettings.shadows;
+                            gSettings.renderScale = std::min(gSettings.renderScale, 0.5f);
+                            gSettings.shadows = false;
+                        } else {
+                            gSettings.renderScale = preLowPerfScale;
+                            gSettings.shadows = preLowPerfShadows;
+                        }
+                        std::cout << "[Console] lowperf " << (lowPerfMode ? "ON" : "OFF") << std::endl;
+                    } else if (lowCmd == "wireframe") {
+                        wireframeMode = !wireframeMode;
+                        std::cout << "[Console] wireframe " << (wireframeMode ? "ON" : "OFF") << std::endl;
                     } else if (lowCmd == "impulse 101") {
                         const auto& weapons = Weapon_L::knowledgeBase();
                         int given = 0;
@@ -1628,14 +1804,20 @@ int main(int argc, char* argv[]) {
                 const int renderH = std::max(240, static_cast<int>(windowHeight * renderScale));
                 const bool postProcessActive = postProcess.beginScene(renderW, renderH);
                 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+                glPolygonMode(GL_FRONT_AND_BACK, wireframeMode ? GL_LINE : GL_FILL);
 
-                const bool deathInput = !demoMode && (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS ||
+                const bool deathInput = !demoMode && !consoleOpen && (
+                    glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS ||
                     glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS ||
                     glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS ||
                     glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS ||
                     glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS ||
                     glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS ||
-                    glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS);
+                    glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS ||
+                    GameConsole_ActionDown("forward") || GameConsole_ActionDown("back") ||
+                    GameConsole_ActionDown("moveleft") || GameConsole_ActionDown("moveright") ||
+                    GameConsole_ActionDown("jump") || GameConsole_ActionDown("attack") ||
+                    GameConsole_ActionDown("attack2"));
                 bool justRespawned = false;
                 if (player.dead) {
                     player.deathTime += dt;
@@ -1696,22 +1878,49 @@ int main(int argc, char* argv[]) {
                 if (player.pitch > 89.0f) player.pitch = 89.0f;
                 if (player.pitch < -89.0f) player.pitch = -89.0f;
 
+                // Diagnostics hotkeys (work while playing, not in the console).
+                if (!demoMode && !consoleOpen) {
+                    const bool f9 = glfwGetKey(window, GLFW_KEY_F9) == GLFW_PRESS;
+                    const bool f10 = glfwGetKey(window, GLFW_KEY_F10) == GLFW_PRESS;
+                    const bool f11 = glfwGetKey(window, GLFW_KEY_F11) == GLFW_PRESS;
+                    const bool f12 = glfwGetKey(window, GLFW_KEY_F12) == GLFW_PRESS;
+                    if (f9 && !screenshotWasDown) SaveScreenshot();
+                    if (f10 && !statsKeyWasDown) gSettings.showStats = !gSettings.showStats;
+                    if (f11 && !lowPerfKeyWasDown) {
+                        lowPerfMode = !lowPerfMode;
+                        if (lowPerfMode) {
+                            preLowPerfScale = gSettings.renderScale;
+                            preLowPerfShadows = gSettings.shadows;
+                            gSettings.renderScale = std::min(gSettings.renderScale, 0.5f);
+                            gSettings.shadows = false;
+                        } else {
+                            gSettings.renderScale = preLowPerfScale;
+                            gSettings.shadows = preLowPerfShadows;
+                        }
+                    }
+                    if (f12 && !wireframeKeyWasDown) wireframeMode = !wireframeMode;
+                    screenshotWasDown = f9;
+                    statsKeyWasDown = f10;
+                    lowPerfKeyWasDown = f11;
+                    wireframeKeyWasDown = f12;
+                }
+
                 bool useDown = demoMode ? (demoInput.valid && ((demoInput.buttons & 0x0020u) != 0 ||
                     (demoInput.buttonsPressed & 0x0020u) != 0)) :
-                    (!consoleOpen && !player.dead && glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS);
+                    (!consoleOpen && !player.dead && (glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS || GameConsole_ActionDown("use")));
                 bool lmbDown = demoMode ? (demoInput.valid && ((demoInput.buttons & 0x0001u) != 0 ||
                     (demoInput.buttonsPressed & 0x0001u) != 0)) :
-                    (!consoleOpen && !player.dead && glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS);
+                    (!consoleOpen && !player.dead && (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS || GameConsole_ActionDown("attack")));
                 bool rmbDown = demoMode ? (demoInput.valid && ((demoInput.buttons & 0x0800u) != 0 ||
                     (demoInput.buttonsPressed & 0x0800u) != 0)) :
-                    (!consoleOpen && !player.dead && glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS);
+                    (!consoleOpen && !player.dead && (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS || GameConsole_ActionDown("attack2")));
                 if (justRespawned) {
                     useDown = false;
                     lmbDown = false;
                     rmbDown = false;
                 }
                 bool flashlightDown = demoMode ? (demoInput.valid && demoInput.impulsePressed) :
-                    (!consoleOpen && !player.dead && glfwGetKey(window, GLFW_KEY_F) == GLFW_PRESS);
+                    (!consoleOpen && !player.dead && (glfwGetKey(window, GLFW_KEY_F) == GLFW_PRESS || GameConsole_ActionDown("impulse 100") || GameConsole_ActionDown("flashlight")));
                 if(flashlightDown&&!flashlightWasDown&&(player.hasSuit || demoMode)){flashlightEnabled=!flashlightEnabled;Sound_L::Get().play("items/flashlight1.wav",player.pos,0.8f,false,false);}
                 if(!player.hasSuit && !demoMode)flashlightEnabled=false;
                 flashlightWasDown=flashlightDown;
@@ -1734,7 +1943,7 @@ int main(int argc, char* argv[]) {
                 lastWeaponSlotPressed = weaponSlotPressed;
 
                 bool reloadDown = demoMode ? (demoInput.valid && (demoInput.buttons & 0x2000u) != 0) :
-                    (!consoleOpen && !player.dead && glfwGetKey(window, GLFW_KEY_R) == GLFW_PRESS);
+                    (!consoleOpen && !player.dead && (glfwGetKey(window, GLFW_KEY_R) == GLFW_PRESS || GameConsole_ActionDown("reload")));
                 static bool reloadWasDown = false;
                 if (reloadDown && (!reloadWasDown ||
                     (demoMode && (demoInput.buttonsPressed & 0x2000u) != 0))) {
@@ -1809,10 +2018,12 @@ int main(int argc, char* argv[]) {
                 float rx = std::cos(radY), rz = std::sin(radY);
 
                 Vec3 wishDir{0, 0, 0};
-                if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) { wishDir.x += fx; wishDir.z += fz; }
-                if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) { wishDir.x -= fx; wishDir.z -= fz; }
-                if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) { wishDir.x -= rx; wishDir.z -= rz; }
-                if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) { wishDir.x += rx; wishDir.z += rz; }
+                if (!consoleOpen) {
+                    if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS || GameConsole_ActionDown("forward")) { wishDir.x += fx; wishDir.z += fz; }
+                    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS || GameConsole_ActionDown("back")) { wishDir.x -= fx; wishDir.z -= fz; }
+                    if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS || GameConsole_ActionDown("moveleft")) { wishDir.x -= rx; wishDir.z -= rz; }
+                    if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS || GameConsole_ActionDown("moveright")) { wishDir.x += rx; wishDir.z += rz; }
+                }
                 if (wishDir.length() > 0) wishDir = wishDir.normalize();
                 if (player.dead) {
                     wishDir = Vec3{0, 0, 0};
@@ -1830,20 +2041,24 @@ int main(int argc, char* argv[]) {
                     const Vec3 noclipForward{fx, 0.0f, fz};
                     const Vec3 noclipRight{rx, 0.0f, rz};
                     Vec3 flyDir{0, 0, 0};
-                    if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) flyDir = flyDir + noclipForward;
-                    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) flyDir = flyDir - noclipForward;
-                    if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) flyDir = flyDir - noclipRight;
-                    if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) flyDir = flyDir + noclipRight;
-                    if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS) flyDir.y += 1.0f;
-                    if (glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS ||
-                        glfwGetKey(window, GLFW_KEY_RIGHT_CONTROL) == GLFW_PRESS) flyDir.y -= 1.0f;
+                    if (!consoleOpen) {
+                        if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS || GameConsole_ActionDown("forward")) flyDir = flyDir + noclipForward;
+                        if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS || GameConsole_ActionDown("back")) flyDir = flyDir - noclipForward;
+                        if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS || GameConsole_ActionDown("moveleft")) flyDir = flyDir - noclipRight;
+                        if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS || GameConsole_ActionDown("moveright")) flyDir = flyDir + noclipRight;
+                        if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS || GameConsole_ActionDown("jump")) flyDir.y += 1.0f;
+                        if (glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS ||
+                            glfwGetKey(window, GLFW_KEY_RIGHT_CONTROL) == GLFW_PRESS ||
+                            GameConsole_ActionDown("duck")) flyDir.y -= 1.0f;
+                    }
                     if (flyDir.length() > 0.001f) flyDir = flyDir.normalize();
                     player.pos = player.pos + flyDir * (600.0f * dt);
                     player.velocity = Vec3{0, 0, 0};
                     player.onGround = false;
                 } else {
-                    bool crouchDown = !player.dead && ((glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS) ||
-                                       (glfwGetKey(window, GLFW_KEY_RIGHT_CONTROL) == GLFW_PRESS));
+                    bool crouchDown = !consoleOpen && !player.dead && ((glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS) ||
+                                       (glfwGetKey(window, GLFW_KEY_RIGHT_CONTROL) == GLFW_PRESS) ||
+                                       GameConsole_ActionDown("duck"));
                     float targetHeight = crouchDown ? crouchHeight : standingHeight;
 
                     if (!crouchDown && player.height < standingHeight - 0.01f) {
@@ -1866,7 +2081,8 @@ int main(int argc, char* argv[]) {
 
                     float maxSpeed = crouchDown ? 64.0f : 190.0f;
                     bool isSprinting = false;
-                    if (player.hasSuit && !crouchDown && glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS &&
+                    if (!consoleOpen && player.hasSuit && !crouchDown &&
+                        (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS || GameConsole_ActionDown("speed")) &&
                         player.onGround && wishDir.length() > 0.0f && player.sprintEnergy > 0.0f) {
                         maxSpeed = 320.0f;
                         isSprinting = true;
@@ -1906,7 +2122,9 @@ int main(int argc, char* argv[]) {
                     }
 
                     player.velocity.y -= gravity * dt;
-                    if (!player.dead && glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS && player.onGround) {
+                    if (!consoleOpen && !player.dead &&
+                        (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS || GameConsole_ActionDown("jump")) &&
+                        player.onGround) {
                         player.velocity.y = jumpImpulse;
                         player.onGround = false;
                     }
@@ -2097,19 +2315,6 @@ int main(int argc, char* argv[]) {
                 DrawSkybox({0, 0, 0}, skyTex);
                 lightManager.applyLights(renderCameraPos);
                 glTranslatef(-renderCameraPos.x, -renderCameraPos.y, -renderCameraPos.z);
-                glEnable(GL_CULL_FACE);
-                glCullFace(GL_BACK);
-                mapParser.renderWorld();
-                glDisable(GL_CULL_FACE);
-                if (!disableLighting) mapParser.renderLightmaps();
-                mapParser.renderTransparentWorld();
-                if (!lowPerfMode) mapParser.renderCubemapReflections(player.pos, cubemapManager);
-                if(flashlightEnabled && !lowPerfMode)RenderFlashlight(player,renderCameraPos,mapParser,propManager,entManager,true,false);
-                if (gSettings.shadows) {
-                    RenderStaticPropBlobShadows(propManager, mapParser);
-                    RenderEntityBlobShadows(entManager, mapParser);
-                }
-
                 const float deg2rad = 3.14159f / 180.0f;
                 ViewCullParams cull;
                 cull.pos = renderCameraPos;
@@ -2121,11 +2326,22 @@ int main(int argc, char* argv[]) {
                 cull.fovX = std::tan(fovRad * 0.5f);
                 cull.fovY = cull.fovX / aspect;
 
+                glEnable(GL_CULL_FACE);
+                glCullFace(GL_BACK);
+                mapParser.renderWorld();
+                glDisable(GL_CULL_FACE);
+                if (!disableLighting) mapParser.renderLightmaps();
+                mapParser.renderTransparentWorld(&cull);
+                if (!lowPerfMode) mapParser.renderCubemapReflections(player.pos, cubemapManager, &cull);
+                if(flashlightEnabled && !lowPerfMode)RenderFlashlight(player,renderCameraPos,mapParser,propManager,entManager,true,false);
+                if (gSettings.shadows) {
+                    RenderStaticPropBlobShadows(propManager, mapParser, renderCameraPos, &cull);
+                    RenderEntityBlobShadows(entManager, mapParser, renderCameraPos);
+                }
+
                 ModelLightmap_L::Begin(mapParser,!disableLighting);
                 propManager.render(&mapParser, &cull);
                 entManager.renderAll(&cull);
-
-                // (cull is declared a bit further down for view-model/effects code)
 
                 const MPPlayerState& remote = Multiplayer_L::remoteState();
                 if (Multiplayer_L::active() && remote.valid) {
@@ -2184,42 +2400,58 @@ int main(int argc, char* argv[]) {
 
                 if (openPauseMenu) menu.captureCurrentFrame(windowWidth, windowHeight);
 
-                if (gSettings.showFps) {
-                    const double nowFps = glfwGetTime();
-                    static double fpsWindow = 0.0;
-                    static int fpsFrames = 0;
-                    static float fpsValue = 0.0f;
-                    ++fpsFrames;
-                    if (nowFps - fpsWindow >= 0.5) {
-                        fpsValue = static_cast<float>(fpsFrames / (nowFps - fpsWindow));
-                        fpsWindow = nowFps;
-                        fpsFrames = 0;
+                if ((gSettings.showFps || gSettings.showStats) && currentFps > 0.0f) {
+                    glPushAttrib(GL_ALL_ATTRIB_BITS);
+                    glMatrixMode(GL_PROJECTION);
+                    glPushMatrix();
+                    glLoadIdentity();
+                    glOrtho(0, windowWidth, windowHeight, 0, -1, 1);
+                    glMatrixMode(GL_MODELVIEW);
+                    glPushMatrix();
+                    glLoadIdentity();
+                    glDisable(GL_DEPTH_TEST);
+                    glDisable(GL_LIGHTING);
+                    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+                    glEnable(GL_BLEND);
+                    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+                    const int size = std::max(11, windowHeight / 80);
+                    char fpsText[64];
+                    std::snprintf(fpsText, sizeof(fpsText), "%3.0f FPS  %5.1f ms",
+                                  currentFps, 1000.0f / currentFps);
+                    TextRender::drawMono(size, fpsText,
+                                         windowWidth - 24.0f - TextRender::monoWidth(size, fpsText),
+                                         18.0f, 0.95f, 0.95f, 0.96f, 0.9f);
+
+                    if (gSettings.showStats) {
+                        const int small = std::max(10, windowHeight / 100);
+                        const float y0 = 18.0f + size + 6.0f;
+                        const int rw = std::max(320, static_cast<int>(windowWidth * gSettings.renderScale));
+                        const int rh = std::max(240, static_cast<int>(windowHeight * gSettings.renderScale));
+                        char lines[5][96];
+                        std::snprintf(lines[0], sizeof(lines[0]), "scale %3d%%  %dx%d%s",
+                                      static_cast<int>(gSettings.renderScale * 100.0f + 0.5f), rw, rh,
+                                      gSettings.autoRenderScale ? "  (auto)" : "");
+                        std::snprintf(lines[1], sizeof(lines[1]), "props  %4d vis / %4d culled",
+                                      gPerfStats.visibleProps, gPerfStats.culledProps);
+                        std::snprintf(lines[2], sizeof(lines[2]), "ents   %4d vis / %4d culled",
+                                      gPerfStats.visibleEntities, gPerfStats.culledEntities);
+                        std::snprintf(lines[3], sizeof(lines[3]), "faces  %4d vis / %4d culled",
+                                      gPerfStats.visibleFaces, gPerfStats.culledFaces);
+                        std::snprintf(lines[4], sizeof(lines[4]), "shadow %4d drawn / %4d skipped",
+                                      gPerfStats.shadowsDrawn, gPerfStats.shadowsSkipped);
+                        for (int i = 0; i < 5; ++i) {
+                            TextRender::drawMono(small, lines[i],
+                                                 windowWidth - 24.0f - TextRender::monoWidth(small, lines[i]),
+                                                 y0 + i * (small + 3.0f), 0.78f, 0.86f, 0.92f, 0.88f);
+                        }
                     }
-                    if (fpsValue > 0.0f) {
-                        glPushAttrib(GL_ALL_ATTRIB_BITS);
-                        glMatrixMode(GL_PROJECTION);
-                        glPushMatrix();
-                        glLoadIdentity();
-                        glOrtho(0, windowWidth, windowHeight, 0, -1, 1);
-                        glMatrixMode(GL_MODELVIEW);
-                        glPushMatrix();
-                        glLoadIdentity();
-                        glDisable(GL_DEPTH_TEST);
-                        glDisable(GL_LIGHTING);
-                        glEnable(GL_BLEND);
-                        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-                        char fpsText[32];
-                        std::snprintf(fpsText, sizeof(fpsText), "%3.0f FPS", fpsValue);
-                        const int size = std::max(11, windowHeight / 80);
-                        TextRender::drawMono(size, fpsText,
-                                             windowWidth - 24.0f - TextRender::monoWidth(size, fpsText),
-                                             18.0f, 0.95f, 0.95f, 0.96f, 0.9f);
-                        glMatrixMode(GL_MODELVIEW);
-                        glPopMatrix();
-                        glMatrixMode(GL_PROJECTION);
-                        glPopMatrix();
-                        glPopAttrib();
-                    }
+
+                    glMatrixMode(GL_MODELVIEW);
+                    glPopMatrix();
+                    glMatrixMode(GL_PROJECTION);
+                    glPopMatrix();
+                    glPopAttrib();
                 }
 
                 menu.handleConsoleOverlayInput(window, windowWidth, windowHeight);
@@ -2231,10 +2463,11 @@ int main(int argc, char* argv[]) {
                     ++fpsFrames;
                     const double now = glfwGetTime();
                     if (now - fpsWindowStart >= 2.0) {
-                        std::fprintf(stderr, "[FPS] %.1f (%.2f ms/frame, %dx%d) pos=(%.0f %.0f %.0f) yaw=%.0f pitch=%.0f\n",
+                        std::fprintf(stderr, "[FPS] %.1f (%.2f ms/frame, %dx%d @ %d%%) pos=(%.0f %.0f %.0f) yaw=%.0f pitch=%.0f\n",
                                      fpsFrames / (now - fpsWindowStart),
                                      1000.0 * (now - fpsWindowStart) / fpsFrames,
                                      windowWidth, windowHeight,
+                                     static_cast<int>(gSettings.renderScale * 100.0f + 0.5f),
                                      player.pos.x, player.pos.y, player.pos.z,
                                      player.yaw, player.pitch);
                         fpsWindowStart = now;

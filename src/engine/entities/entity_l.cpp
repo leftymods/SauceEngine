@@ -7,6 +7,7 @@
 #include "hammer_entity.h"
 #include "bsp_l.h"
 #include "sound_l.h"
+#include "perfstats.h"
 #include <iostream>
 #include <sstream>
 #include <cmath>
@@ -852,8 +853,12 @@ void EntityManager::renderAll(const ViewCullParams* cull) {
         if (!ent || !ent->enabled || ent->shouldDestroy) continue;
         if (cull) {
             const float radius = 96.0f;
-            if (!sphereInView(*cull, ent->pos, radius)) continue;
+            if (!sphereInView(*cull, ent->pos, radius)) {
+                ++gPerfStats.culledEntities;
+                continue;
+            }
         }
+        ++gPerfStats.visibleEntities;
         ent->render();
     }
 }

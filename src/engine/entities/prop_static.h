@@ -26,9 +26,11 @@ public:
     std::vector<std::string> modelNames;
     std::vector<MDL_L*> models;
     std::vector<StaticPropInstance> instances;
+    void* propTraceHandle = nullptr; // SaucePropIndex*, owned here
 
     void parseFromBSP(const std::vector<char>& staticPropData, int version);
     void loadModels(Texture_L& texL);
+    void rebuildTrace();
     void render(const BSP_L* map, const ViewCullParams* cull = nullptr);
     bool traceRay(const Vec3& orig, const Vec3& dir, float& outDist, Vec3& outNormal);
     ~PropStatic_L();

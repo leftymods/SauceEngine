@@ -123,6 +123,7 @@ if(WIN32)
     if(SAUCE_RUST_ENABLED)
         add_dependencies(SauceEngine sauce_rust_target)
         target_link_libraries(SauceEngine PRIVATE "${SAUCE_RUST_LIB}" ntdll)
+        target_compile_definitions(SauceEngine PRIVATE SAUCE_RUST_ENABLED=1)
     endif()
 
     target_link_options(SauceEngine PRIVATE
@@ -174,6 +175,7 @@ else()
     if(SAUCE_RUST_ENABLED)
         add_dependencies(SauceEngine sauce_rust_target)
         target_link_libraries(SauceEngine PRIVATE "${SAUCE_RUST_LIB}")
+        target_compile_definitions(SauceEngine PRIVATE SAUCE_RUST_ENABLED=1)
     endif()
 
     pkg_check_modules(PULSE_SIMPLE libpulse-simple)

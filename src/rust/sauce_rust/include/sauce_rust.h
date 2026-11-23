@@ -6,6 +6,7 @@ extern "C" {
 #endif
 
 typedef struct SauceTraceWorld SauceTraceWorld;
+typedef struct SaucePropIndex SaucePropIndex;
 
 typedef struct {
     float x;
@@ -34,6 +35,11 @@ typedef struct {
 } SauceDispTri;
 
 typedef struct {
+    SauceVec3 min;
+    SauceVec3 max;
+} SaucePropBounds;
+
+typedef struct {
     const SauceVec3* vertices;
     size_t vertex_count;
     const SauceEdge* edges;
@@ -51,6 +57,13 @@ SauceTraceWorld* sauce_trace_init(const SauceTraceInit* init);
 void sauce_trace_shutdown(SauceTraceWorld* world);
 int sauce_trace_ray(SauceTraceWorld* world, const SauceVec3* orig, const SauceVec3* dir,
                     float* out_t, SauceVec3* out_n);
+
+SaucePropIndex* sauce_props_init(const SaucePropBounds* bounds, size_t count);
+void sauce_props_shutdown(SaucePropIndex* index);
+// Returns the total number of AABB candidates found; writes up to `capacity`
+// instance indices, nearest first.
+size_t sauce_props_query(const SaucePropIndex* index, const SauceVec3* orig, const SauceVec3* dir,
+                         float max_t, int* out, size_t capacity);
 
 #ifdef __cplusplus
 }

@@ -2,6 +2,7 @@
 #include "fs_compat.h"
 #include "cubemap_l.h"
 #include "sauce_rust.h"
+#include "perfstats.h"
 #include <iostream>
 #include <sstream>
 #include <algorithm>
@@ -138,10 +139,12 @@ void BSP_L::releaseRenderResources() {
     modelLightmapVolumeMin={0,0,0};
     modelLightmapVolumeMax={1,1,1};
     if(lightmapWorldList){glDeleteLists(lightmapWorldList,1);lightmapWorldList=0;}
+#ifdef SAUCE_RUST_ENABLED
     if (rustTraceWorld_) {
         sauce_trace_shutdown(static_cast<SauceTraceWorld*>(rustTraceWorld_));
         rustTraceWorld_ = nullptr;
     }
+#endif
     rustFaces_.clear();
 }
 
@@ -900,7 +903,7 @@ void BSP_L::renderFlashlight(const Vec3& origin, const Vec3& direction, float ra
     glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
 }
 
-void BSP_L::renderCubemapReflections(const Vec3& viewerPosition, const Cubemap_L& cubemaps) {
+void BSP_L::renderCubemapReflections(const Vec3& viewerPosition, const Cubemap_L& cubemaps, const ViewCullParams* cull) {
     if (!textureSystem || !cubemaps.hasCubemaps()) return;
     const unsigned int cubeTexture = cubemaps.nearestTexture(viewerPosition);
     if (!cubeTexture) return;
@@ -1020,6 +1023,17 @@ void BSP_L::renderCubemapReflections(const Vec3& viewerPosition, const Cubemap_L
 
     for (size_t i = 0; i < faces.size(); ++i) {
         if (!faceRenderable[i]) continue;
+        if (cull && i < faceBounds.size()) {
+            const auto& fb = faceBounds[i];
+            const Vec3 center{ (fb.minX + fb.maxX) * 0.5f, (fb.minY + fb.maxY) * 0.5f, (fb.minZ + fb.maxZ) * 0.5f };
+            const Vec3 extent{ (fb.maxX - fb.minX) * 0.5f, (fb.maxY - fb.minY) * 0.5f, (fb.maxZ - fb.minZ) * 0.5f };
+            const float radius = std::max(1.0f, extent.length());
+            if (!sphereInView(*cull, center, radius)) {
+                ++gPerfStats.culledFaces;
+                continue;
+            }
+            ++gPerfStats.visibleFaces;
+        }
         const auto& f = faces[i];
         if (f.texinfo < 0 || f.texinfo >= static_cast<int>(texinfos.size())) continue;
         const auto& ti = texinfos[f.texinfo];
@@ -1249,7 +1263,7 @@ void BSP_L::renderWorld() {
     if(displacementList) glCallList(displacementList);
 }
 
-void BSP_L::renderTransparentWorld() {
+void BSP_L::renderTransparentWorld(const ViewCullParams* cull) {
     glColor4f(1,1,1,1);
     glDisable(GL_ALPHA_TEST);
     EnsureBSPMultitexture();
@@ -1258,6 +1272,17 @@ void BSP_L::renderTransparentWorld() {
 
     for(size_t fIdx=0;fIdx<faces.size();++fIdx){
         if(!faceRenderable[fIdx]) continue;
+        if (cull && fIdx < faceBounds.size()) {
+            const auto& fb = faceBounds[fIdx];
+            const Vec3 center{ (fb.minX + fb.maxX) * 0.5f, (fb.minY + fb.maxY) * 0.5f, (fb.minZ + fb.maxZ) * 0.5f };
+            const Vec3 extent{ (fb.maxX - fb.minX) * 0.5f, (fb.maxY - fb.minY) * 0.5f, (fb.maxZ - fb.minZ) * 0.5f };
+            const float radius = std::max(1.0f, extent.length());
+            if (!sphereInView(*cull, center, radius)) {
+                ++gPerfStats.culledFaces;
+                continue;
+            }
+            ++gPerfStats.visibleFaces;
+        }
         const auto& f=faces[fIdx];
         const auto& ti=texinfos[f.texinfo];
         unsigned int tex=0;
@@ -1343,6 +1368,7 @@ Vec3 BSP_L::getPlayerSpawn() {
 
 
 bool BSP_L::traceRay(const Vec3& orig, const Vec3& dir, float& outDist, Vec3& outNormal) {
+#ifdef SAUCE_RUST_ENABLED
     if (rustTraceWorld_) {
         const SauceVec3 o{ orig.x, orig.y, orig.z };
         const SauceVec3 d{ dir.x, dir.y, dir.z };
@@ -1355,6 +1381,7 @@ bool BSP_L::traceRay(const Vec3& orig, const Vec3& dir, float& outDist, Vec3& ou
         }
         return false;
     }
+#endif
 
     outDist = 999999.0f;
     bool hit = false;
@@ -1915,6 +1942,9 @@ void BSP_L::buildModelLightmapVolume() {
 }
 
 void BSP_L::initRustTrace() {
+#ifndef SAUCE_RUST_ENABLED
+    return;
+#else
     if (rustTraceWorld_) {
         sauce_trace_shutdown(static_cast<SauceTraceWorld*>(rustTraceWorld_));
         rustTraceWorld_ = nullptr;
@@ -1946,6 +1976,7 @@ void BSP_L::initRustTrace() {
     init.disp_tri_count = dispTriangles.size();
 
     rustTraceWorld_ = sauce_trace_init(&init);
+#endif
 }
 
 bool BSP_L::sampleLightmapLighting(const Vec3& worldPos, Vec3& outColor, float* outBrightness) const {

@@ -38,6 +38,7 @@ extern std::string GameConsole_GetInput();
 extern std::vector<std::string> GameConsole_GetSuggestions();
 extern void GameConsole_SetInput(const std::string& value);
 extern bool GameConsole_TakeMapCommand(std::string& outMap);
+extern void GameConsole_SaveBinds(const std::string& path);
 extern bool GameConsole_TakeDemoCommand(std::string& outDemo);
 extern void GameConsole_RequestDemo(const std::string& demoName);
 extern bool GameConsole_TakeDemoRequest(std::string& outDemo);
@@ -791,8 +792,9 @@ int currentResolutionIndex() {
 void persistSettings() {
     const std::string exe = Plat::ExecutablePath();
     if (exe.empty()) return;
-    std::filesystem::path path = std::filesystem::path(FsCompat::fromUtf8(exe)).parent_path() / "sauce.cfg";
-    SaveSettings(FsCompat::toUtf8(path));
+    std::filesystem::path dir = std::filesystem::path(FsCompat::fromUtf8(exe)).parent_path();
+    SaveSettings(FsCompat::toUtf8(dir / "sauce.cfg"));
+    GameConsole_SaveBinds(FsCompat::toUtf8(dir / "binds.cfg"));
 }
 
 std::vector<std::string> collectDemos(const std::string& gameDirectory) {
@@ -831,11 +833,11 @@ void Menu_L::renderOptionsDialog(int width, int height) {
     const float w = dialogW - Style::kDialogMargin * 2.0f * s;
 
     // --- category tabs ---
-    const char* tabs[4] = {"VIDEO", "AUDIO", "INPUT", "GAME"};
+    const char* tabs[5] = {"VIDEO", "AUDIO", "INPUT", "GAME", "PERF"};
     float tabX = x;
     const float tabY = dialogY + Style::kContentTop * s;
     const float tabH = 28.0f * s;
-    for (int i = 0; i < 4; ++i) {
+    for (int i = 0; i < 5; ++i) {
         const float textW = textWidth(tabs[i], fontSmall);
         const float tabW = textW + 26.0f * s;
         const bool active = optionsTab == i;
@@ -865,6 +867,12 @@ void Menu_L::renderOptionsDialog(int width, int height) {
     // Rows are addressed by a stable id so the hit tests stay in sync.
     char fovText[32];
     std::snprintf(fovText, sizeof(fovText), "%d deg", gSettings.fov);
+    char scaleText[32];
+    std::snprintf(scaleText, sizeof(scaleText), "%d%%", static_cast<int>(gSettings.renderScale * 100.0f + 0.5f));
+    char targetText[32];
+    std::snprintf(targetText, sizeof(targetText), "%d fps", gSettings.targetFps);
+    char limitText[32];
+    std::snprintf(limitText, sizeof(limitText), gSettings.fpsLimit ? "%d fps" : "Unlimited", gSettings.fpsLimit);
 
     struct RowSpec { int id; const char* label; std::string value; };
     std::vector<RowSpec> rows;
@@ -880,10 +888,16 @@ void Menu_L::renderOptionsDialog(int width, int height) {
     } else if (optionsTab == 2) {
         rows.push_back({5, "Mouse sensitivity", sensText});
         rows.push_back({8, "Invert mouse Y", gSettings.invertY ? "On" : "Off"});
-    } else {
+    } else if (optionsTab == 3) {
         rows.push_back({9, "Show FPS", gSettings.showFps ? "On" : "Off"});
         rows.push_back({10, "Crosshair", gSettings.crosshair ? "On" : "Off"});
         rows.push_back({11, "Blob shadows", gSettings.shadows ? "On" : "Off"});
+    } else {
+        rows.push_back({12, "Render scale", scaleText});
+        rows.push_back({13, "Auto render scale", gSettings.autoRenderScale ? "On" : "Off"});
+        rows.push_back({14, "Target FPS", targetText});
+        rows.push_back({15, "FPS limit", limitText});
+        rows.push_back({16, "Stats overlay", gSettings.showStats ? "On" : "Off"});
     }
 
     const float rowsTop = optionsRowsTop(static_cast<int>(rows.size()), dialogY, dialogH, s);
@@ -901,7 +915,8 @@ void Menu_L::renderOptionsDialog(int width, int height) {
         const float rightX = x + w - 26.0f * s;
         const bool isToggle = (rows[i].id == 1 || rows[i].id == 2 || rows[i].id == 4 ||
                                rows[i].id == 6 || rows[i].id == 8 || rows[i].id == 9 ||
-                               rows[i].id == 10 || rows[i].id == 11);
+                               rows[i].id == 10 || rows[i].id == 11 || rows[i].id == 13 ||
+                               rows[i].id == 16);
         if (isToggle) {
             const float toggleW = 54.0f * s;
             const bool tHover = hovered(leftX, bY, toggleW, bH);
@@ -922,7 +937,8 @@ void Menu_L::renderOptionsDialog(int width, int height) {
     const char* hint = optionsTab == 0 ? "Display settings apply immediately."
                      : (optionsTab == 1 ? "Master volume affects all game audio."
                      : (optionsTab == 2 ? "Mouse sensitivity is applied while playing."
-                                        : "HUD and diagnostics."));
+                     : (optionsTab == 3 ? "HUD and diagnostics."
+                                        : "Auto scale adjusts resolution to hold the target FPS.")));
     drawText(hint, x, dialogY + dialogH - 44.0f * s, fontTiny,
              kDimBaseText[0], kDimBaseText[1], kDimBaseText[2], 0.85f);
 
@@ -1434,8 +1450,8 @@ bool Menu_L::handleDialogInput(GLFWwindow* window, int width, int height, MenuRe
         if (mouseDown && !mouseWasDown) {
             // Tabs.
             float tabX = x;
-            for (int i = 0; i < 4; ++i) {
-                const char* names[4] = {"VIDEO", "AUDIO", "INPUT", "GAME"};
+            for (int i = 0; i < 5; ++i) {
+                const char* names[5] = {"VIDEO", "AUDIO", "INPUT", "GAME", "PERF"};
                 const float tabW = textWidth(names[i], fontSmall) + 26.0f * s;
                 if (pointIn((float)mx, (float)my, tabX, tabY, tabW, tabH)) {
                     optionsTab = i;
@@ -1450,6 +1466,7 @@ bool Menu_L::handleDialogInput(GLFWwindow* window, int width, int height, MenuRe
             if (optionsTab == 1) { indices[0] = 3; indices[1] = 4; count = 2; }
             else if (optionsTab == 2) { indices[0] = 5; indices[1] = 8; count = 2; }
             else if (optionsTab == 3) { indices[0] = 9; indices[1] = 10; indices[2] = 11; count = 3; }
+            else if (optionsTab == 4) { indices[0] = 12; indices[1] = 13; indices[2] = 14; indices[3] = 15; indices[4] = 16; count = 5; }
             const float rowsTop = optionsRowsTop(count, dialogY, dialogH, s);
             for (int slot = 0; slot < count; ++slot) {
                 const int id = indices[slot];
@@ -1462,7 +1479,8 @@ bool Menu_L::handleDialogInput(GLFWwindow* window, int width, int height, MenuRe
                 const bool minus = pointIn((float)mx, (float)my, leftX, bY, bW, bH);
                 const bool plus = pointIn((float)mx, (float)my, rightX, bY, bW, bH);
                 const bool toggleHit = (id == 1 || id == 2 || id == 4 || id == 6 ||
-                                        id == 8 || id == 9 || id == 10 || id == 11) &&
+                                        id == 8 || id == 9 || id == 10 || id == 11 ||
+                                        id == 13 || id == 16) &&
                     pointIn((float)mx, (float)my, leftX, bY, 54.0f * s, bH);
                 if (!minus && !plus && !toggleHit) continue;
 
@@ -1513,6 +1531,19 @@ bool Menu_L::handleDialogInput(GLFWwindow* window, int width, int height, MenuRe
                     gSettings.crosshair = !gSettings.crosshair;
                 } else if (id == 11) {
                     gSettings.shadows = !gSettings.shadows;
+                } else if (id == 12) {
+                    gSettings.renderScale = std::clamp(
+                        gSettings.renderScale + (plus ? 0.1f : -0.1f), 0.25f, 1.0f);
+                } else if (id == 13) {
+                    gSettings.autoRenderScale = !gSettings.autoRenderScale;
+                } else if (id == 14) {
+                    gSettings.targetFps = std::clamp(gSettings.targetFps + (plus ? 5 : -5), 15, 240);
+                } else if (id == 15) {
+                    const int step = gSettings.fpsLimit >= 120 ? 30 : 15;
+                    const int next = gSettings.fpsLimit + (plus ? step : -step);
+                    gSettings.fpsLimit = next < 15 ? 0 : std::clamp(next, 15, 360);
+                } else if (id == 16) {
+                    gSettings.showStats = !gSettings.showStats;
                 }
                 persistSettings();
                 return true;

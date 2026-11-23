@@ -5,13 +5,16 @@
 #include <algorithm>
 #include <cctype>
 #include <deque>
+#include <fstream>
 #include <functional>
 #include <cstdlib>
 #include <iostream>
 #include <mutex>
+#include <sstream>
 #include <streambuf>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 #include "engine_console.h"
@@ -36,6 +39,7 @@ bool pauseMenuRequest = false;
 bool pauseMenuActive = false;
 std::unordered_map<int, std::string> consoleBinds;
 std::unordered_map<int, bool> consoleBindStates;
+std::unordered_set<std::string> consoleActiveActions;
 
 static bool ConsoleLooksLikeError(const std::string& text) {
     std::string s = text;
@@ -132,23 +136,13 @@ void GameConsole_SetInput(const std::string& value) {
 
 static std::vector<std::string> GameConsoleCommandNames() {
     return {
-        "noclip",
-        "impulse 101",
-        "give",
-        "npc_create",
-        "npc_spawn",
-        "npc_list",
-        "ent_create",
-        "connect",
-        "disconnect",
-        "host",
-        "map",
-        "playdemo",
-        "changelevel",
-        "status",
-        "bind",
-        "unbind",
-        "sauce_use_fixed_weaponspreads"
+        "noclip", "impulse 101", "give", "npc_create", "npc_spawn", "npc_list",
+        "ent_create", "connect", "disconnect", "host", "map", "playdemo",
+        "changelevel", "status", "bind", "unbind", "sauce_use_fixed_weaponspreads",
+        "renderscale", "autoscale", "targetfps", "fpslimit", "stats",
+        "lowperf", "wireframe", "screenshot",
+        "+forward", "+back", "+moveleft", "+moveright", "+jump", "+duck", "+speed",
+        "+attack", "+attack2", "+use", "+reload"
     };
 }
 
@@ -186,6 +180,36 @@ static std::string ConsoleKeyNameLower(std::string value) {
     return value;
 }
 
+static std::string ConsoleBindKeyName(int key) {
+    if (key == kBindWheelUp) return "mwheelup";
+    if (key == kBindWheelDown) return "mwheeldown";
+    if (key >= kBindMouseBase && key < kBindMouseBase + 1000) {
+        const int b = key - kBindMouseBase;
+        if (b == GLFW_MOUSE_BUTTON_LEFT) return "mouse1";
+        if (b == GLFW_MOUSE_BUTTON_RIGHT) return "mouse2";
+        if (b == GLFW_MOUSE_BUTTON_MIDDLE) return "mouse3";
+        if (b >= GLFW_MOUSE_BUTTON_4) return "mouse" + std::to_string(b + 1);
+    }
+    if (key >= GLFW_KEY_A && key <= GLFW_KEY_Z) return std::string(1, static_cast<char>('a' + (key - GLFW_KEY_A)));
+    if (key >= GLFW_KEY_0 && key <= GLFW_KEY_9) return std::string(1, static_cast<char>('0' + (key - GLFW_KEY_0)));
+    if (key >= GLFW_KEY_F1 && key <= GLFW_KEY_F25) return "f" + std::to_string(key - GLFW_KEY_F1 + 1);
+    static const std::unordered_map<int, std::string> names = {
+        {GLFW_KEY_SPACE,"space"},{GLFW_KEY_ENTER,"enter"},{GLFW_KEY_KP_ENTER,"kp_enter"},{GLFW_KEY_TAB,"tab"},
+        {GLFW_KEY_BACKSPACE,"backspace"},{GLFW_KEY_DELETE,"delete"},{GLFW_KEY_INSERT,"insert"},{GLFW_KEY_HOME,"home"},
+        {GLFW_KEY_END,"end"},{GLFW_KEY_PAGE_UP,"pageup"},{GLFW_KEY_PAGE_DOWN,"pagedown"},{GLFW_KEY_UP,"up"},
+        {GLFW_KEY_DOWN,"down"},{GLFW_KEY_LEFT,"left"},{GLFW_KEY_RIGHT,"right"},{GLFW_KEY_ESCAPE,"escape"},
+        {GLFW_KEY_LEFT_SHIFT,"shift"},{GLFW_KEY_LEFT_CONTROL,"ctrl"},{GLFW_KEY_LEFT_ALT,"alt"},
+        {GLFW_KEY_RIGHT_SHIFT,"right_shift"},{GLFW_KEY_RIGHT_CONTROL,"right_ctrl"},{GLFW_KEY_RIGHT_ALT,"right_alt"},
+        {GLFW_KEY_MINUS,"minus"},{GLFW_KEY_EQUAL,"equal"},{GLFW_KEY_COMMA,"comma"},{GLFW_KEY_PERIOD,"period"},
+        {GLFW_KEY_SLASH,"slash"},{GLFW_KEY_SEMICOLON,"semicolon"},{GLFW_KEY_APOSTROPHE,"apostrophe"},
+        {GLFW_KEY_LEFT_BRACKET,"leftbracket"},{GLFW_KEY_BACKSLASH,"backslash"},{GLFW_KEY_RIGHT_BRACKET,"rightbracket"},
+        {GLFW_KEY_GRAVE_ACCENT,"grave"},{GLFW_KEY_CAPS_LOCK,"capslock"}
+    };
+    auto it = names.find(key);
+    if (it != names.end()) return it->second;
+    return "key" + std::to_string(key);
+}
+
 int ConsoleParseBindKey(std::string keyName) {
     keyName = ConsoleKeyNameLower(keyName);
     if (keyName.size() == 1) {
@@ -215,7 +239,18 @@ int ConsoleParseBindKey(std::string keyName) {
         {"f6", GLFW_KEY_F6}, {"f7", GLFW_KEY_F7}, {"f8", GLFW_KEY_F8}, {"f9", GLFW_KEY_F9}, {"f10", GLFW_KEY_F10},
         {"f11", GLFW_KEY_F11}, {"f12", GLFW_KEY_F12}, {"f13", GLFW_KEY_F13}, {"f14", GLFW_KEY_F14}, {"f15", GLFW_KEY_F15},
         {"f16", GLFW_KEY_F16}, {"f17", GLFW_KEY_F17}, {"f18", GLFW_KEY_F18}, {"f19", GLFW_KEY_F19}, {"f20", GLFW_KEY_F20},
-        {"f21", GLFW_KEY_F21}, {"f22", GLFW_KEY_F22}, {"f23", GLFW_KEY_F23}, {"f24", GLFW_KEY_F24}, {"f25", GLFW_KEY_F25}
+        {"f21", GLFW_KEY_F21}, {"f22", GLFW_KEY_F22}, {"f23", GLFW_KEY_F23}, {"f24", GLFW_KEY_F24}, {"f25", GLFW_KEY_F25},
+        // Mouse buttons / wheel are bindable like keyboard keys.
+        {"mouse1", kBindMouseBase + GLFW_MOUSE_BUTTON_LEFT},
+        {"mouse2", kBindMouseBase + GLFW_MOUSE_BUTTON_RIGHT},
+        {"mouse3", kBindMouseBase + GLFW_MOUSE_BUTTON_MIDDLE},
+        {"mouse4", kBindMouseBase + GLFW_MOUSE_BUTTON_4},
+        {"mouse5", kBindMouseBase + GLFW_MOUSE_BUTTON_5},
+        {"mouse6", kBindMouseBase + GLFW_MOUSE_BUTTON_6},
+        {"mouse7", kBindMouseBase + GLFW_MOUSE_BUTTON_7},
+        {"mouse8", kBindMouseBase + GLFW_MOUSE_BUTTON_8},
+        {"mwheelup", kBindWheelUp}, {"mwheeldown", kBindWheelDown},
+        {"wheelup", kBindWheelUp}, {"wheeldown", kBindWheelDown}
     };
     auto it = table.find(keyName);
     return it == table.end() ? GLFW_KEY_UNKNOWN : it->second;
@@ -227,14 +262,48 @@ static void GameConsoleQueueCommand(const std::string& command) {
     consoleQueue.push_back(command);
 }
 
+static bool ConsoleBindDown(GLFWwindow* window, int key) {
+    if (key >= kBindMouseBase && key < kBindMouseBase + 1000)
+        return glfwGetMouseButton(window, key - kBindMouseBase) == GLFW_PRESS;
+    // Wheel has no "held" state; it is edge-triggered from the scroll callback.
+    if (key == kBindWheelUp || key == kBindWheelDown) return false;
+    if (key == GLFW_KEY_UNKNOWN) return false;
+    return glfwGetKey(window, key) == GLFW_PRESS;
+}
+
+static void ConsoleBindActivate(const std::string& cmd, bool pressed) {
+    if (cmd.size() > 1 && cmd[0] == '+') {
+        const std::string action = cmd.substr(1);
+        if (pressed) consoleActiveActions.insert(action);
+        else consoleActiveActions.erase(action);
+        return;
+    }
+    if (pressed) GameConsoleQueueCommand(cmd);
+}
+
 void GameConsoleProcessBinds(GLFWwindow* window) {
-    if (!window || consoleOpen || consoleBinds.empty()) return;
+    if (!window) return;
+    if (consoleOpen || consoleBinds.empty()) {
+        // Release any held +actions so they don't get stuck after console open.
+        if (consoleOpen) consoleActiveActions.clear();
+        return;
+    }
     for (const auto& kv : consoleBinds) {
         const int key = kv.first;
-        const bool down = glfwGetKey(window, key) == GLFW_PRESS;
+        const bool down = ConsoleBindDown(window, key);
         const bool wasDown = consoleBindStates[key];
-        if (down && !wasDown) GameConsoleQueueCommand(kv.second);
+        if (down != wasDown) ConsoleBindActivate(kv.second, down);
         consoleBindStates[key] = down;
+    }
+}
+
+void GameConsoleScrollCallback(GLFWwindow* /*window*/, double /*xoffset*/, double yoffset) {
+    if (consoleOpen || consoleBinds.empty() || yoffset == 0.0) return;
+    const int id = yoffset > 0.0 ? kBindWheelUp : kBindWheelDown;
+    auto it = consoleBinds.find(id);
+    if (it != consoleBinds.end()) {
+        ConsoleBindActivate(it->second, true);
+        ConsoleBindActivate(it->second, false);
     }
 }
 
@@ -416,6 +485,44 @@ bool GameConsole_TakeJoinMapRequest(std::string& outMap) {
     outMap = consoleJoinMap;
     consoleJoinMap.clear();
     return true;
+}
+
+bool GameConsole_ActionDown(const std::string& action) {
+    return consoleActiveActions.find(action) != consoleActiveActions.end();
+}
+
+void GameConsole_LoadBinds(const std::string& path) {
+    std::ifstream in(path);
+    if (!in) return;
+    std::string line;
+    while (std::getline(in, line)) {
+        line = TrimCommand(line);
+        if (line.empty() || line[0] == '#') continue;
+        std::istringstream iss(line);
+        std::string verb, keyName;
+        iss >> verb >> keyName;
+        if (LowerCommand(verb) != "bind") continue;
+        std::string command;
+        std::getline(iss, command);
+        command = TrimCommand(command);
+        if (command.size() >= 2 && command.front() == '"' && command.back() == '"')
+            command = command.substr(1, command.size() - 2);
+        if (keyName.empty() || command.empty()) continue;
+        const int key = ConsoleParseBindKey(keyName);
+        if (key == GLFW_KEY_UNKNOWN) continue;
+        consoleBinds[key] = command;
+        consoleBindStates[key] = false;
+    }
+}
+
+void GameConsole_SaveBinds(const std::string& path) {
+    std::ofstream out(path, std::ios::trunc);
+    if (!out) return;
+    std::vector<std::pair<int, std::string>> binds(consoleBinds.begin(), consoleBinds.end());
+    std::sort(binds.begin(), binds.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+    for (const auto& kv : binds) {
+        out << "bind " << ConsoleBindKeyName(kv.first) << " \"" << kv.second << "\"\n";
+    }
 }
 
 void GameConsoleApplyOpenState(GLFWwindow* window) {

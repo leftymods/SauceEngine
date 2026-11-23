@@ -19,6 +19,14 @@ struct EngineSettings {
     bool crosshair = true;
     bool shadows = true;
     float renderScale = 1.0f;
+    // Automatically nudge renderScale to hold targetFps (useful when another
+    // application is hammering the same GPU).
+    bool autoRenderScale = false;
+    int targetFps = 45;
+    // 0 = uncapped. A cap keeps the GPU free for other applications.
+    int fpsLimit = 0;
+    // Extended performance overlay (draw calls, triangles, culled objects).
+    bool showStats = false;
 };
 
 extern EngineSettings gSettings;
