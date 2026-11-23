@@ -21,6 +21,7 @@
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/Collision/Shape/MeshShape.h>
 #include <Jolt/Physics/Collision/Shape/ConvexHullShape.h>
+#include <Jolt/Physics/Collision/Shape/CylinderShape.h>
 #include <Jolt/Physics/Collision/Shape/StaticCompoundShape.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Body/BodyInterface.h>
@@ -504,6 +505,62 @@ void RigidBody::createSphere(float r) {
     radius = radiusValue;
 }
 
+void RigidBody::createCylinder(float halfHeight, float radiusValue, int axis) {
+    PhysicsWorld::init();
+    JPH::BodyInterface& bi = PhysicsWorld::getBodyInterface();
+
+    halfHeight = std::max(0.01f, halfHeight);
+    radiusValue = std::max(0.01f, radiusValue);
+
+    JPH::CylinderShapeSettings cylSettings(halfHeight, radiusValue, 0.05f);
+    JPH::ShapeSettings::ShapeResult cylResult = cylSettings.Create();
+    if (cylResult.HasError()) {
+        std::cout << "Error: Cylinder collision build failed: " << cylResult.GetError().c_str() << std::endl;
+        createBox({ radiusValue, halfHeight, radiusValue });
+        return;
+    }
+
+    // Rotate the cylinder so its local Y aligns with the requested axis.
+    JPH::Quat rot = JPH::Quat::sIdentity();
+    if (axis == 0) {
+        rot = JPH::Quat::sRotation(JPH::Vec3(0, 0, 1), 3.14159265f * 0.5f);
+    } else if (axis == 2) {
+        rot = JPH::Quat::sRotation(JPH::Vec3(1, 0, 0), 3.14159265f * 0.5f);
+    }
+
+    // Shift the cylinder so the body origin stays at the base of the object
+    // (matching the model origin) while the centre of mass is at the
+    // geometric centre. This makes barrels stable but still physically
+    // plausible when pushed.
+    JPH::Vec3 offset = JPH::Vec3::sZero();
+    if (axis == 0) offset = JPH::Vec3(halfHeight, 0, 0);
+    else if (axis == 1) offset = JPH::Vec3(0, halfHeight, 0);
+    else if (axis == 2) offset = JPH::Vec3(0, 0, halfHeight);
+
+    JPH::StaticCompoundShapeSettings compound;
+    compound.AddShape(offset, rot, cylResult.Get());
+    JPH::Shape::ShapeResult result = compound.Create();
+    if (result.HasError()) {
+        std::cout << "Error: Cylinder compound build failed: " << result.GetError().c_str() << std::endl;
+        createBox({ radiusValue, halfHeight, radiusValue });
+        return;
+    }
+
+    JPH::ObjectLayer layer = isStatic ? Layers::NON_MOVING : Layers::MOVING;
+    JPH::EMotionType motion = isStatic ? JPH::EMotionType::Static : JPH::EMotionType::Dynamic;
+    JPH::BodyCreationSettings settings(result.Get(), JPH::RVec3(position.x, position.y, position.z),
+                                       EulerToQuat(angles), motion, layer);
+    ApplyCommonBodySettings(settings, *this);
+    settings.mAngularDamping = 0.25f;
+    settings.mFriction = std::max(0.5f, friction);
+
+    JPH::Body* b = bi.CreateBody(settings);
+    if (!b) return;
+    bi.AddBody(b->GetID(), isStatic ? JPH::EActivation::DontActivate : JPH::EActivation::Activate);
+    internalBodyID = new JPH::BodyID(b->GetID());
+    radius = std::max(radiusValue, halfHeight);
+}
+
 static bool MakeConvexShape(const std::vector<Vec3>& vertices, JPH::RefConst<JPH::Shape>& outShape) {
     if (vertices.size() < 4) return false;
     JPH::Array<JPH::Vec3> joltVerts;
@@ -621,21 +678,26 @@ Vec3 RigidBody::getCenterOfMassPosition() const {
 Vec3 RigidBody::getAngles() const {
     if (!internalBodyID || !PhysicsWorld::getSystem()) return angles;
     const JPH::BodyID* id = static_cast<const JPH::BodyID*>(internalBodyID);
-    JPH::Quat q = PhysicsWorld::getBodyInterface().GetRotation(*id);
+    const JPH::Quat q = PhysicsWorld::getBodyInterface().GetRotation(*id);
 
+    // Convert quaternion back to Euler angles using the same convention as
+    // EulerToQuat: yaw around Y, pitch around X (negated), roll around Z.
     const float rad2deg = 180.0f / 3.14159265358979323846f;
-    float sinr = 2.0f * (q.GetW() * q.GetX() + q.GetY() * q.GetZ());
-    float cosr = 1.0f - 2.0f * (q.GetX() * q.GetX() + q.GetY() * q.GetY());
-    float roll = std::atan2(sinr, cosr) * rad2deg;
+    const float x = q.GetX();
+    const float y = q.GetY();
+    const float z = q.GetZ();
+    const float w = q.GetW();
 
-    float sinp = 2.0f * (q.GetW() * q.GetY() - q.GetZ() * q.GetX());
-    float pitch = std::abs(sinp) >= 1.0f
-        ? std::copysign(90.0f, sinp)
-        : std::asin(sinp) * rad2deg;
+    const float m02 = 2.0f * (x * z + y * w);
+    const float m22 = 1.0f - 2.0f * (x * x + y * y);
+    const float yaw = std::atan2(m02, m22) * rad2deg;
 
-    float siny = 2.0f * (q.GetW() * q.GetZ() + q.GetX() * q.GetY());
-    float cosy = 1.0f - 2.0f * (q.GetY() * q.GetY() + q.GetZ() * q.GetZ());
-    float yaw = std::atan2(siny, cosy) * rad2deg;
+    const float m12 = 2.0f * (y * z - x * w);
+    const float pitch = -std::asin(std::clamp(m12, -1.0f, 1.0f)) * rad2deg;
+
+    const float m10 = 2.0f * (x * y + z * w);
+    const float m11 = 1.0f - 2.0f * (x * x + z * z);
+    const float roll = std::atan2(m10, m11) * rad2deg;
 
     return { pitch, yaw, roll };
 }

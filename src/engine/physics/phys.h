@@ -68,6 +68,10 @@ struct RigidBody {
     void createSphere(float r);
     void createConvexHull(const std::vector<Vec3>& vertices);
     void createCompoundHull(const std::vector<std::vector<Vec3>>& parts);
+    /// Create a cylinder centered at the body origin. Axis: 0=X, 1=Y, 2=Z.
+    /// The cylinder is shifted so its center of mass lies at the geometric
+    /// centre (a barrel stands upright and rotates around its middle).
+    void createCylinder(float halfHeight, float radius, int axis = 1);
 
     void destroy();
 

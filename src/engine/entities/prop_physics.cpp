@@ -240,20 +240,42 @@ PropPhysics::PropPhysics(const std::string& block, const Vec3& p,
         }
     }
 
-    if (collisionParts.size() == 1) {
+    const Vec3 boundsMin = model.hasRenderBounds ? model.renderBoundsMin : model.hullMin;
+    const Vec3 boundsMax = model.hasRenderBounds ? model.renderBoundsMax : model.hullMax;
+    const Vec3 sizes = (boundsMax - boundsMin) * scale;
+    const float sizeX = sizes.x;
+    const float sizeY = sizes.y;
+    const float sizeZ = sizes.z;
+
+    // Use a fitted primitive shape when the model is clearly barrel/column-like.
+    // Model-space Z maps to engine-space Y, so a tall model Z becomes a Y-cylinder.
+    const bool tallAlongZ = sizeZ > sizeX * 1.35f && sizeZ > sizeY * 1.35f &&
+                            sizeX / sizeY > 0.55f && sizeX / sizeY < 1.85f;
+    const bool tallAlongX = sizeX > sizeY * 1.35f && sizeX > sizeZ * 1.35f &&
+                            sizeY / sizeZ > 0.55f && sizeY / sizeZ < 1.85f;
+    const bool tallAlongY = sizeY > sizeX * 1.35f && sizeY > sizeZ * 1.35f &&
+                            sizeX / sizeZ > 0.55f && sizeX / sizeZ < 1.85f;
+
+    if (tallAlongZ) {
+        const float halfHeight = sizeZ * 0.5f;
+        const float radius = std::max(sizeX, sizeY) * 0.5f;
+        body.createCylinder(halfHeight, radius, 1);
+    } else if (tallAlongX) {
+        const float halfHeight = sizeX * 0.5f;
+        const float radius = std::max(sizeY, sizeZ) * 0.5f;
+        body.createCylinder(halfHeight, radius, 0);
+    } else if (tallAlongY) {
+        const float halfHeight = sizeY * 0.5f;
+        const float radius = std::max(sizeX, sizeZ) * 0.5f;
+        body.createCylinder(halfHeight, radius, 2);
+    } else if (collisionParts.size() == 1) {
         body.createConvexHull(collisionParts.front());
     } else if (!collisionParts.empty()) {
         body.createCompoundHull(collisionParts);
     } else {
-        Vec3 fallbackMin = model.hullMin;
-        Vec3 fallbackMax = model.hullMax;
-        if (model.hasRenderBounds) {
-            fallbackMin = model.renderBoundsMin;
-            fallbackMax = model.renderBoundsMax;
-        }
-        float sx = std::abs(fallbackMax.x - fallbackMin.x) * scale * 0.5f;
-        float sy = std::abs(fallbackMax.y - fallbackMin.y) * scale * 0.5f;
-        float sz = std::abs(fallbackMax.z - fallbackMin.z) * scale * 0.5f;
+        float sx = std::abs(boundsMax.x - boundsMin.x) * scale * 0.5f;
+        float sy = std::abs(boundsMax.y - boundsMin.y) * scale * 0.5f;
+        float sz = std::abs(boundsMax.z - boundsMin.z) * scale * 0.5f;
         sx = std::max(sx, 4.0f);
         sy = std::max(sy, 4.0f);
         sz = std::max(sz, 4.0f);

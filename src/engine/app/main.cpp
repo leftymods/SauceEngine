@@ -1925,14 +1925,22 @@ int main(int argc, char* argv[]) {
                     if(propManager.traceRay(player.pos,{0,-1,0},dProp,nProp) && dProp<dFloor){dFloor=dProp;nFloor=nProp;floorHit=true;}
                     float dEnt=999999.0f; Vec3 nEnt;
                     if(entManager.traceRay(player.pos,{0,-1,0},dEnt,nEnt) && dEnt<dFloor){dFloor=dEnt;nFloor=nEnt;floorHit=true;}
-                    if(floorHit && dFloor <= player.height + 0.1f) {
-                        if(player.velocity.y<=0){
-                            player.pos.y += player.height-dFloor;
-                            player.velocity.y=0;
-                            player.onGround=true;
-                            currentFloorTex=mapParser.getHitTextureName(player.pos,{0,-1,0});
-                        }
-                    } else player.onGround=false;
+                    // Step height: only snap up small ledges while moving on
+                    // the ground. In the air the player must land normally.
+                    // This prevents the player from teleporting onto walls,
+                    // raised platforms, or physics props just by touching them.
+                    const float snapUp = player.height - dFloor;
+                    const float stepLimit = player.onGround ? 18.0f : 0.0f;
+                    if (floorHit && player.velocity.y <= 0.0f &&
+                        snapUp > 0.05f && snapUp <= stepLimit &&
+                        wishDir.length() > 0.001f) {
+                        player.pos.y += snapUp;
+                        player.velocity.y = 0;
+                        player.onGround = true;
+                        currentFloorTex = mapParser.getHitTextureName(player.pos, {0,-1,0});
+                    } else if (!floorHit || dFloor > player.height + 0.1f) {
+                        player.onGround = false;
+                    }
                 }
 
                 float soundYaw = player.yaw * 3.14159265f / 180.0f;

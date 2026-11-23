@@ -206,6 +206,38 @@ def build_light_lab_faces():
             (0, 0, 1), "metal/metalwall001d",
             ((px - hx, py - hy, hz), (1, 0, 0), (0, 1, 0), hx * 2, hy * 2)))
 
+    # Outer collision shell: the visible faces are infinitely thin, so a
+    # thin shell keeps dynamic props from squeezing through walls while still
+    # letting them rest flush against the visible walls.
+    shell = 1.0
+    sx0, sx1 = x0 - shell, x1 + shell
+    sy0, sy1 = y0 - shell, y1 + shell
+    sz0, sz1 = z0 - shell, z1 + shell
+    faces.append(Face(
+        [(sx0, sy0, sz0), (sx1, sy0, sz0), (sx1, sy1, sz0), (sx0, sy1, sz0)],
+        (0, 0, 1), "dev/dev_measuregeneric01",
+        ((sx0, sy0, sz0), (1, 0, 0), (0, 1, 0), sx1 - sx0, sy1 - sy0)))
+    faces.append(Face(
+        [(sx0, sy0, sz1), (sx0, sy1, sz1), (sx1, sy1, sz1), (sx1, sy0, sz1)],
+        (0, 0, -1), "dev/dev_measuregeneric01",
+        ((sx0, sy0, sz1), (1, 0, 0), (0, 1, 0), sx1 - sx0, sy1 - sy0)))
+    faces.append(Face(
+        [(sx0, sy0, sz0), (sx0, sy1, sz0), (sx0, sy1, sz1), (sx0, sy0, sz1)],
+        (1, 0, 0), "dev/dev_measuregeneric01",
+        ((sx0, sy0, sz0), (0, 1, 0), (0, 0, 1), sy1 - sy0, sz1 - sz0)))
+    faces.append(Face(
+        [(sx1, sy1, sz0), (sx1, sy0, sz0), (sx1, sy0, sz1), (sx1, sy1, sz1)],
+        (-1, 0, 0), "dev/dev_measuregeneric01",
+        ((sx1, sy0, sz0), (0, 1, 0), (0, 0, 1), sy1 - sy0, sz1 - sz0)))
+    faces.append(Face(
+        [(sx0, sy0, sz0), (sx0, sy0, sz1), (sx1, sy0, sz1), (sx1, sy0, sz0)],
+        (0, 1, 0), "dev/dev_measuregeneric01",
+        ((sx0, sy0, sz0), (1, 0, 0), (0, 0, 1), sx1 - sx0, sz1 - sz0)))
+    faces.append(Face(
+        [(sx1, sy1, sz0), (sx1, sy1, sz1), (sx0, sy1, sz1), (sx0, sy1, sz0)],
+        (0, -1, 0), "dev/dev_measuregeneric01",
+        ((sx0, sy1, sz0), (1, 0, 0), (0, 0, 1), sx1 - sx0, sz1 - sz0)))
+
     # Raised platform (tests lighting on a horizontal step + its sides).
     px0, px1 = -330.0, -140.0
     py0, py1 = -200.0, -40.0
