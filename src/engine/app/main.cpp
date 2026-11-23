@@ -1925,15 +1925,14 @@ int main(int argc, char* argv[]) {
                     if(propManager.traceRay(player.pos,{0,-1,0},dProp,nProp) && dProp<dFloor){dFloor=dProp;nFloor=nProp;floorHit=true;}
                     float dEnt=999999.0f; Vec3 nEnt;
                     if(entManager.traceRay(player.pos,{0,-1,0},dEnt,nEnt) && dEnt<dFloor){dFloor=dEnt;nFloor=nEnt;floorHit=true;}
-                    // Step height: only snap up small ledges while moving on
-                    // the ground. In the air the player must land normally.
-                    // This prevents the player from teleporting onto walls,
-                    // raised platforms, or physics props just by touching them.
+                    // Always land on the floor when the feet are near it;
+                    // step up small ledges only while actually moving.
                     const float snapUp = player.height - dFloor;
-                    const float stepLimit = player.onGround ? 18.0f : 0.0f;
-                    if (floorHit && player.velocity.y <= 0.0f &&
-                        snapUp > 0.05f && snapUp <= stepLimit &&
-                        wishDir.length() > 0.001f) {
+                    const bool nearFloor = floorHit &&
+                        dFloor >= player.height - 0.1f && dFloor <= player.height + 0.1f;
+                    const bool smallStep = player.onGround && wishDir.length() > 0.001f &&
+                        snapUp > 0.05f && snapUp <= 18.0f;
+                    if (floorHit && player.velocity.y <= 0.0f && (nearFloor || smallStep)) {
                         player.pos.y += snapUp;
                         player.velocity.y = 0;
                         player.onGround = true;
