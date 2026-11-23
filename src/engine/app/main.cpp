@@ -1671,6 +1671,15 @@ int main(int argc, char* argv[]) {
                     curX = centerX;
                     curY = centerY;
                 }
+
+                // Camera control with arrow keys (in addition to mouse).
+                const float arrowTurnSpeed = 120.0f * dt;
+                if (glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS) player.yaw -= arrowTurnSpeed;
+                if (glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS) player.yaw += arrowTurnSpeed;
+                if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS)
+                    player.pitch -= arrowTurnSpeed * (gSettings.invertY ? -1.0f : 1.0f);
+                if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS)
+                    player.pitch += arrowTurnSpeed * (gSettings.invertY ? -1.0f : 1.0f);
                 if (player.pitch > 89.0f) player.pitch = 89.0f;
                 if (player.pitch < -89.0f) player.pitch = -89.0f;
 
