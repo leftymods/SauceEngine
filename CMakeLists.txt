@@ -15,11 +15,64 @@ set(ENGINE_INCLUDE_DIRS
     "${CMAKE_CURRENT_SOURCE_DIR}/src/engine/gameplay"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/engine/network"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/engine/physics"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/rust/sauce_rust/include"
 )
 
 file(GLOB_RECURSE ENGINE_SOURCES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/src/engine/*.cpp"
 )
+
+# ------------------------------------------------------------------
+# Optional Rust static library for CPU-heavy subsystems (no graphics).
+# ------------------------------------------------------------------
+find_program(CARGO_EXECUTABLE cargo)
+set(SAUCE_RUST_ENABLED OFF)
+if(CARGO_EXECUTABLE)
+    if(WIN32)
+        set(RUST_TARGET "x86_64-pc-windows-gnu")
+    else()
+        execute_process(
+            COMMAND ${CARGO_EXECUTABLE} -vV
+            OUTPUT_VARIABLE CARGO_VERSION_OUT
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+        )
+        string(REGEX MATCH "host: ([^ \n]+)" RUST_HOST_MATCH "${CARGO_VERSION_OUT}")
+        if(CMAKE_MATCH_1)
+            set(RUST_TARGET "${CMAKE_MATCH_1}")
+        else()
+            set(RUST_TARGET "x86_64-unknown-linux-gnu")
+        endif()
+    endif()
+
+    set(SAUCE_RUST_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src/rust/sauce_rust")
+    set(SAUCE_RUST_TARGET_DIR "${SAUCE_RUST_DIR}/target/${RUST_TARGET}")
+    # MinGW static libraries use the .a extension just like Linux.
+    set(SAUCE_RUST_LIB "${SAUCE_RUST_TARGET_DIR}/release/libsauce_rust.a")
+
+    set(SAUCE_RUST_BUILD_ENV)
+    if(WIN32)
+        # Static CRT and MinGW cross-linker for the Windows build.
+        set(SAUCE_RUST_BUILD_ENV
+            ${CMAKE_COMMAND} -E env
+            CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=/usr/bin/x86_64-w64-mingw32-gcc-posix
+            RUSTFLAGS=-Ctarget-feature=+crt-static
+        )
+    endif()
+
+    file(GLOB SAUCE_RUST_SOURCES "${SAUCE_RUST_DIR}/src/*.rs")
+    add_custom_command(
+        OUTPUT "${SAUCE_RUST_LIB}"
+        COMMAND ${SAUCE_RUST_BUILD_ENV} ${CARGO_EXECUTABLE} build --release --target ${RUST_TARGET} --manifest-path "${SAUCE_RUST_DIR}/Cargo.toml"
+        DEPENDS "${SAUCE_RUST_DIR}/Cargo.toml" ${SAUCE_RUST_SOURCES}
+        WORKING_DIRECTORY "${SAUCE_RUST_DIR}"
+        COMMENT "Building sauce_rust (${RUST_TARGET})"
+    )
+    add_custom_target(sauce_rust_target DEPENDS "${SAUCE_RUST_LIB}")
+    set(SAUCE_RUST_ENABLED ON)
+    message(STATUS "sauce_rust enabled: ${RUST_TARGET}")
+else()
+    message(STATUS "cargo not found: sauce_rust disabled")
+endif()
 
 if(WIN32)
     if(NOT MINGW)
@@ -67,6 +120,10 @@ if(WIN32)
         comdlg32
         imm32
     )
+    if(SAUCE_RUST_ENABLED)
+        add_dependencies(SauceEngine sauce_rust_target)
+        target_link_libraries(SauceEngine PRIVATE "${SAUCE_RUST_LIB}" ntdll)
+    endif()
 
     target_link_options(SauceEngine PRIVATE
         -static
@@ -114,6 +171,10 @@ else()
         ${CMAKE_DL_LIBS}
         m
     )
+    if(SAUCE_RUST_ENABLED)
+        add_dependencies(SauceEngine sauce_rust_target)
+        target_link_libraries(SauceEngine PRIVATE "${SAUCE_RUST_LIB}")
+    endif()
 
     pkg_check_modules(PULSE_SIMPLE libpulse-simple)
     if(PULSE_SIMPLE_FOUND)

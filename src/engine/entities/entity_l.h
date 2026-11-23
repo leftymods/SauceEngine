@@ -60,7 +60,7 @@ public:
     Entity* findMultiplayerEntity(int netId) const;
 
     void updateAll(float dt, Camera& player, BSP_L* map);
-    void renderAll();
+    void renderAll(const ViewCullParams* cull = nullptr);
 
 
     void fireEntityOutput(Entity* source, const std::string& output, Camera& player, BSP_L* map);

@@ -300,6 +300,7 @@ std::string gameTitle = "Sauce name";
 bool disableTextures = false;
 bool disableLighting = false;
 bool postProcessDisabled = false;
+bool lowPerfMode = false;
 int windowWidth = 1920;
 int windowHeight = 1080;
 
@@ -905,6 +906,11 @@ int main(int argc, char* argv[]) {
         if (!exeDir.empty()) LoadSettings(FsCompat::toUtf8(exeDir / "sauce.cfg"));
         windowWidth = gSettings.width;
         windowHeight = gSettings.height;
+        if (std::getenv("SAUCE_LOWPERF")) lowPerfMode = true;
+        if (lowPerfMode) {
+            gSettings.renderScale = std::min(gSettings.renderScale, 0.5f);
+            gSettings.shadows = false;
+        }
     }
 
     for (size_t i = 1; i < commandArgs.size(); ++i) {
@@ -920,6 +926,10 @@ int main(int argc, char* argv[]) {
         else if (arg == "-nopost") postProcessDisabled = true;
         else if (arg == "-notexture") disableTextures = true;
         else if (arg == "-nolight") disableLighting = true;
+        else if (arg == "-lowperf") lowPerfMode = true;
+        else if (arg == "-renderscale" && i + 1 < commandArgs.size()) {
+            try { gSettings.renderScale = std::clamp(std::stof(commandArgs[++i]), 0.25f, 1.0f); } catch (...) {}
+        }
     }
     {
         std::error_code pathError;
@@ -1613,7 +1623,10 @@ int main(int argc, char* argv[]) {
                 if (changelevelCooldown > 0.0f) changelevelCooldown -= dt;
 
                 postProcess.setEnabled(gSettings.postProcess && !postProcessDisabled);
-                const bool postProcessActive = postProcess.beginScene(windowWidth, windowHeight);
+                const float renderScale = std::clamp(gSettings.renderScale, 0.25f, 1.0f);
+                const int renderW = std::max(320, static_cast<int>(windowWidth * renderScale));
+                const int renderH = std::max(240, static_cast<int>(windowHeight * renderScale));
+                const bool postProcessActive = postProcess.beginScene(renderW, renderH);
                 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
                 const bool deathInput = !demoMode && (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS ||
@@ -2074,7 +2087,7 @@ int main(int argc, char* argv[]) {
                 glLoadIdentity();
                 float fH = tan(std::clamp(gSettings.fov, 60, 120) / 360.0f * 3.14159f);
                 float fW = fH * aspect;
-                glFrustum(-fW, fW, -fH, fH, 1.0f, 30000.0f);
+                glFrustum(-fW, fW, -fH, fH, 1.0f, 8192.0f);
                 glMatrixMode(GL_MODELVIEW);
                 glLoadIdentity();
                 glRotatef(player.pitch, 1.0f, 0.0f, 0.0f);
@@ -2090,15 +2103,29 @@ int main(int argc, char* argv[]) {
                 glDisable(GL_CULL_FACE);
                 if (!disableLighting) mapParser.renderLightmaps();
                 mapParser.renderTransparentWorld();
-                mapParser.renderCubemapReflections(player.pos, cubemapManager);
-                if(flashlightEnabled)RenderFlashlight(player,renderCameraPos,mapParser,propManager,entManager,true,false);
+                if (!lowPerfMode) mapParser.renderCubemapReflections(player.pos, cubemapManager);
+                if(flashlightEnabled && !lowPerfMode)RenderFlashlight(player,renderCameraPos,mapParser,propManager,entManager,true,false);
                 if (gSettings.shadows) {
                     RenderStaticPropBlobShadows(propManager, mapParser);
                     RenderEntityBlobShadows(entManager, mapParser);
                 }
+
+                const float deg2rad = 3.14159f / 180.0f;
+                ViewCullParams cull;
+                cull.pos = renderCameraPos;
+                cull.forward = GetViewDirection(player).normalize();
+                cull.right = Vec3{std::cos(player.yaw * deg2rad), 0.0f, std::sin(player.yaw * deg2rad)}.normalize();
+                cull.up = cull.right.cross(cull.forward).normalize();
+                cull.farZ = 8192.0f;
+                const float fovRad = std::clamp(gSettings.fov, 60, 120) * deg2rad;
+                cull.fovX = std::tan(fovRad * 0.5f);
+                cull.fovY = cull.fovX / aspect;
+
                 ModelLightmap_L::Begin(mapParser,!disableLighting);
-                propManager.render(&mapParser);
-                entManager.renderAll();
+                propManager.render(&mapParser, &cull);
+                entManager.renderAll(&cull);
+
+                // (cull is declared a bit further down for view-model/effects code)
 
                 const MPPlayerState& remote = Multiplayer_L::remoteState();
                 if (Multiplayer_L::active() && remote.valid) {
@@ -2123,7 +2150,7 @@ int main(int argc, char* argv[]) {
                 }
                 ModelLightmap_L::End();
 
-                if(flashlightEnabled)RenderFlashlight(player,renderCameraPos,mapParser,propManager,entManager,false,true);
+                if(flashlightEnabled && !lowPerfMode)RenderFlashlight(player,renderCameraPos,mapParser,propManager,entManager,false,true);
                 Vec3 viewDirForEffects=GetViewDirection(player);
                 Vec3 cameraUp=camRight.cross(viewDirForEffects).normalize();
                 Weapon_L::renderImpactEffects(renderCameraPos,camRight,cameraUp);
@@ -2138,7 +2165,7 @@ int main(int argc, char* argv[]) {
                 }
                 ModelLightmap_L::End();
                 lightManager.disableAll();
-                if (postProcessActive) postProcess.endScene();
+                if (postProcessActive) postProcess.endScene(windowWidth, windowHeight);
 
                 hudRenderer.render(windowWidth, windowHeight, player, entManager.getActiveWeapon(player));
                 hudRenderer.renderDamageOverlay(windowWidth, windowHeight, player);

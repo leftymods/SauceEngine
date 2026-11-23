@@ -18,6 +18,7 @@ struct EngineSettings {
     bool showFps = false;
     bool crosshair = true;
     bool shadows = true;
+    float renderScale = 1.0f;
 };
 
 extern EngineSettings gSettings;

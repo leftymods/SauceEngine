@@ -469,10 +469,13 @@ bool PostProcess_L::beginScene(int width, int height) {
     return true;
 }
 
-void PostProcess_L::endScene() {
+void PostProcess_L::endScene(int outputWidth, int outputHeight) {
     if (!m_active || !m || !m_ready) return;
 
     Impl& x = *m;
+
+    const int vpW = outputWidth > 0 ? outputWidth : x.width;
+    const int vpH = outputHeight > 0 ? outputHeight : x.height;
 
     glDisable(GL_DEPTH_TEST);
     glDisable(GL_LIGHTING);
@@ -513,7 +516,7 @@ void PostProcess_L::endScene() {
 
 
     x.gl.BindFramebuffer(GL_FRAMEBUFFER_X, 0);
-    glViewport(0, 0, x.width, x.height);
+    glViewport(0, 0, vpW, vpH);
     x.gl.UseProgram(x.compositeProgram);
 
     x.gl.ActiveTexture(GL_TEXTURE0_X);
@@ -526,7 +529,7 @@ void PostProcess_L::endScene() {
 
     x.gl.Uniform1f(x.compositeExposureLoc, x.hdr ? 0.96f : 0.94f);
     x.gl.Uniform1f(x.compositeBloomStrengthLoc, x.hdr ? 0.07f : 0.05f);
-    x.gl.Uniform2f(x.compositeSceneSizeLoc, (float)x.width, (float)x.height);
+    x.gl.Uniform2f(x.compositeSceneSizeLoc, (float)vpW, (float)vpH);
 
     drawFullscreenQuad();
     x.gl.UseProgram(0);

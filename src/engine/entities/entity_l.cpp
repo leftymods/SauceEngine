@@ -847,8 +847,15 @@ bool EntityManager::activateUse(const Vec3& origin, const Vec3& direction, float
     return true;
 }
 
-void EntityManager::renderAll() {
-    for (Entity* ent : entities) if (ent && ent->enabled && !ent->shouldDestroy) ent->render();
+void EntityManager::renderAll(const ViewCullParams* cull) {
+    for (Entity* ent : entities) {
+        if (!ent || !ent->enabled || ent->shouldDestroy) continue;
+        if (cull) {
+            const float radius = 96.0f;
+            if (!sphereInView(*cull, ent->pos, radius)) continue;
+        }
+        ent->render();
+    }
 }
 
 bool EntityManager::traceRay(const Vec3& orig, const Vec3& dir, float& outDist, Vec3& outNormal) {

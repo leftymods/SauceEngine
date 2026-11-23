@@ -14,7 +14,7 @@ public:
     bool beginScene(int width, int height);
 
 
-    void endScene();
+    void endScene(int outputWidth = 0, int outputHeight = 0);
 
     bool enabled() const { return m_ready && m_active; }
 

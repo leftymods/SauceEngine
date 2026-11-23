@@ -68,16 +68,26 @@ void PropStatic_L::loadModels(Texture_L& texL) {
     }
 }
 
-void PropStatic_L::render(const BSP_L* map) {
+void PropStatic_L::render(const BSP_L* map, const ViewCullParams* cull) {
     (void)map;
     for (auto& inst : instances) {
         if (inst.modelIdx >= models.size() || !models[inst.modelIdx]->loaded) continue;
+        if (cull) {
+            const MDL_L* m = models[inst.modelIdx];
+            const Vec3 mn = m->hasRenderBounds ? m->renderBoundsMin : m->hullMin;
+            const Vec3 mx = m->hasRenderBounds ? m->renderBoundsMax : m->hullMax;
+            const Vec3 center = (mn + mx) * (0.5f * inst.scale);
+            const Vec3 extent = (mx - mn) * (0.5f * inst.scale);
+            const float radius = std::max(1.0f, extent.length());
+            if (!sphereInView(*cull, inst.origin + center, radius)) continue;
+        }
         glPushMatrix();
         glTranslatef(inst.origin.x, inst.origin.y, inst.origin.z);
         glRotatef(inst.angles.y, 0.0f, 1.0f, 0.0f);
         glRotatef(-inst.angles.x, 1.0f, 0.0f, 0.0f);
         glRotatef(inst.angles.z, 0.0f, 0.0f, 1.0f);
         glRotatef(-90.0f, 1.0f, 0.0f, 0.0f);
+        if (std::abs(inst.scale - 1.0f) > 0.001f) glScalef(inst.scale, inst.scale, inst.scale);
         glColor4f(1.0f,1.0f,1.0f,1.0f);
         models[inst.modelIdx]->render();
         glPopMatrix();

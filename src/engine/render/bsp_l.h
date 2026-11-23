@@ -8,6 +8,7 @@
 #include <cstring>
 #include "types.h"
 #include "texture_l.h"
+#include "sauce_rust.h"
 
 class Cubemap_L;
 
@@ -60,6 +61,12 @@ public:
     std::vector<char> staticPropData;
     int staticPropVersion = 0;
 
+    void* rustTraceWorld_ = nullptr;
+    std::vector<SauceFace> rustFaces_;
+    unsigned int lightmapWorldList = 0;
+
+    void compileLightmapWorldList();
+
     bool loadMap(const std::string& filename);
     bool loadMapFromData(const std::vector<char>& data, const std::string& sourceName = "<memory>");
     void setupTextures(Texture_L& texL);
@@ -68,6 +75,7 @@ public:
     void buildModelLightmapVolume();
     void renderWorld();
     void renderTransparentWorld();
+    void initRustTrace();
     void renderFlashlight(const Vec3& origin, const Vec3& direction, float range = 1200.0f, float coneDegrees = 42.0f);
     void renderCubemapReflections(const Vec3& viewerPosition, const Cubemap_L& cubemaps);
     void renderLightmaps();

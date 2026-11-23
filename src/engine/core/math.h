@@ -78,3 +78,27 @@ inline bool raySphereIntersect(const Vec3& orig, const Vec3& dir, const Vec3& ce
     }
     return false;
 }
+
+// Simple view-culling parameters used to skip distant/off-screen props and
+// entities. fovX/fovY are the tangents of the half-angles.
+struct ViewCullParams {
+    Vec3 pos{0, 0, 0};
+    Vec3 forward{0, 0, -1};
+    Vec3 right{1, 0, 0};
+    Vec3 up{0, 1, 0};
+    float fovX = 1.0f;
+    float fovY = 1.0f;
+    float farZ = 8192.0f;
+};
+
+inline bool sphereInView(const ViewCullParams& cull, const Vec3& center, float radius) {
+    Vec3 to = center - cull.pos;
+    float z = cull.forward.dot(to);
+    if (z < -radius || z > cull.farZ + radius) return false;
+    float x = std::abs(cull.right.dot(to));
+    float y = std::abs(cull.up.dot(to));
+    float zSafe = std::max(z, 1.0f);
+    if (x > zSafe * cull.fovX + radius) return false;
+    if (y > zSafe * cull.fovY + radius) return false;
+    return true;
+}
